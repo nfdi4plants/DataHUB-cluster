@@ -1,0 +1,101 @@
+---
+- name: Backup or backup and upgrade keycloak
+  hosts: keycloak
+  gather_facts: no
+  become: true
+  roles:
+    - keycloak_backup
+  tasks:
+
+################################
+# Check versions to determine whether to upgrade
+################################
+
+    - name: Get latest version tag if the version is not set in keycloak host_vars
+      ansible.builtin.uri:
+        url: https://api.github.com/repos/keycloak/keycloak/releases/latest
+      register: keycloak_latest_tag
+      when: keycloak_version == None or keycloak_version|length == 0
+    
+    - name: Set keycloak_version var to latest version if not set
+      ansible.builtin.set_fact:
+        keycloak_version: "{{ keycloak_latest_tag.json.tag_name }}"
+      when: keycloak_latest_tag is not skipped
+    
+    - name: Get current keycloak version on host
+      ansible.builtin.shell:
+        cmd: cat /opt/keycloak/version.txt
+      register: keycloak_version_check
+    
+    - block:
+      - name: Report version in host_vars matches version on host
+        ansible.builtin.debug:
+          msg: "Keycloak on host is already version {{ keycloak_version }}"
+      
+      - meta: end_play
+      when: keycloak_version in keycloak_version_check.stdout 
+
+###########################################
+###########################################    
+
+    - name: Stop keycloak application
+      ansible.builtin.systemd_service:
+        name: keycloak.service
+        state: stopped
+
+    - name: Download keycloak
+      ansible.builtin.get_url:
+        dest: "/srv/keycloak/keycloak-{{ keycloak_version }}.tar.gz"
+        url: "https://github.com/keycloak/keycloak/releases/download/{{ keycloak_version }}/keycloak-{{ keycloak_version }}.tar.gz"
+        group: "{{ keycloak_install_backup_group }}"
+        mode: '660'
+
+    - name: Unpack keycloak
+      ansible.builtin.unarchive:
+        src: "/srv/keycloak/keycloak-{{ keycloak_version }}.tar.gz"
+        remote_src: true
+        dest: /srv/keycloak/
+        creates: "/srv/keycloak/keycloak-{{ keycloak_version }}/bin/kc.sh" #Ensures this is only performed on the first run
+
+    - name: Sync content to the new keycloak version
+      ansible.builtin.shell:
+        cmd: "rsync -a --exclude cache-ispn.xml /opt/keycloak/themes /opt/keycloak/providers /opt/keycloak/conf /srv/keycloak/keycloak-{{ keycloak_version }}/"
+          
+    - name: Remove old keycloak /opt/keycloak
+      ansible.builtin.file:
+        path: /opt/keycloak
+        state: absent
+
+    - name: Copy new version to /opt/keycloak
+      ansible.builtin.copy:
+        src: "/srv/keycloak/keycloak-{{ keycloak_version }}/"
+        remote_src: true
+        dest: "/opt/keycloak/"
+
+    - name: Give keycloak user ownership of /opt/keycloak
+      ansible.builtin.file:
+        path: /opt/keycloak
+        recurse: true
+        owner: keycloak
+        group: keycloak
+
+    - name: Run a pre-build for the keycloak application
+      ansible.builtin.shell:
+        chdir: /opt/keycloak/
+        cmd: su -c "bin/kc.sh build --db=postgres --http-relative-path={{ keycloak_relative_path }} --health-enabled=true" keycloak
+
+    - name: Clean up /srv/keycloak
+      ansible.builtin.file:
+        path: /srv/keycloak/keycloak-{{ keycloak_version }}
+        state: absent
+
+    - name: Clean up /srv/keycloak
+      ansible.builtin.file:
+        path: "/srv/keycloak/keycloak-{{ keycloak_version }}.tar.gz"
+        state: absent
+
+    - name: Restart keycloak application
+      ansible.builtin.systemd_service:
+        name: keycloak.service
+        state: started
+

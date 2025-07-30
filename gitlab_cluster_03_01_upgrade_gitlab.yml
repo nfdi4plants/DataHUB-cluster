@@ -1,0 +1,203 @@
+---
+- name: Upgrade gitlab on first host
+  hosts: gitlab_cluster
+  become: true
+  run_once: true
+  tasks:
+############################################
+# Check versions before proceeding
+###########################################
+
+    - name: Update package cache
+      become: true
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Query the repo for gitlab-ce
+      ansible.builtin.shell:
+        cmd: apt-cache show gitlab-ce --no-all-versions | grep Version
+      register: candidate_gitlab
+      when: gitlab_version == None or gitlab_version|length == 0
+
+    - name: Set gitlab_version var to latest release
+      ansible.builtin.set_fact:
+        gitlab_version: "{{ (candidate_gitlab.stdout | split )[1] }}"
+      when: candidate_gitlab is not skipped
+    
+    - name: Get the current gitlab version on host
+      ansible.builtin.shell:
+        cmd: cat /opt/gitlab/version-manifest.txt | grep gitlab-ce
+      register: gitlab_version_host
+
+    - name: Get a stripped version of gitlab_version for comparison to host
+      ansible.builtin.set_fact:
+        gitlab_version_stripped: "{{ gitlab_version | regex_replace('^([\\.\\d]+)-(.+)', '\\1') }}"
+      
+    - name: Report host and group_var gitlab version are the same
+      ansible.builtin.fail:
+        msg: "Host version of gitlab is already {{ gitlab_version }}"
+      when: gitlab_version_stripped in gitlab_version_host.stdout
+
+############################################
+###########################################
+
+
+    - name: Stop the g-gitlab grouped cluster agents
+      community.general.pacemaker_resource:
+        name: g-gitlab
+        state: disabled
+    
+    - name: Become primary cluster node
+      ansible.builtin.shell:
+        cmd: "pcs resource move drbd-service-clone {{ inventory_hostname }}"
+      register: become_primary
+      failed_when: 
+        - become_primary.rc > 0
+        - '"Requested item already exists" not in become_primary.stderr'
+
+    - name: Wait for the filesystem to be mounted
+      ansible.builtin.wait_for:
+        delay: 10
+        path: /proc/mounts
+        search_regex: /var/opt/gitlab       
+        state: present 
+        timeout: 120
+
+    - name: Start the gitlab runsvdir service on the current host
+      ansible.builtin.systemd_service:
+        name: gitlab-runsvdir.service
+        state: started
+
+    - name: Update package cache and upgrade gitlab
+      ansible.builtin.apt:
+        name: "gitlab-ce={{ gitlab_version }}" 
+        state: present
+        allow_change_held_packages: true
+      register: update_gitlab
+
+    - name: Ensure package hold is re-applied for gitlab-ce
+      ansible.builtin.dpkg_selections:
+        name: gitlab-ce
+        selection: hold
+    # Note, this is currently required as the allow_change_held_packages in apt module above does not re-apply the hold
+
+    - name: Wait 90s for background gitlab operations
+      ansible.builtin.pause:
+        seconds: 90
+      when: update_gitlab is changed
+
+    - name: Stop the gitlab application
+      ansible.builtin.shell:
+        cmd: gitlab-ctl stop
+
+    - name: Stop the gitlab runsvdir service on the current host
+      ansible.builtin.systemd_service:
+        name: gitlab-runsvdir.service
+        state: stopped
+
+    - name: Restart g-gitlab cluster agents
+      community.general.pacemaker_resource:
+        name: g-gitlab
+        state: enabled
+
+    
+- name: Upgrade gitlab on remaining hosts
+  hosts: gitlab_cluster
+  gather_facts: no
+  become: true
+  serial: 1
+  tasks:
+    - block:
+        - name: Withdraw host from cluster
+          ansible.builtin.shell:
+            cmd: "pcs cluster stop {{ inventory_hostname }}"
+        
+        - name: Copy gitlab-secrets.json to temporary name
+          ansible.builtin.copy:
+            remote_src: true
+            src: /etc/gitlab/gitlab-secrets.json
+            dest: /etc/gitlab/gitlab-secrets.json.cluster
+            mode: '600'
+        
+        - name: Place original gitlab-secrets.json in place for upgrade/reconfigure
+          ansible.builtin.copy:
+            remote_src: true
+            src: /etc/gitlab/gitlab-secrets.json.orig
+            dest: /etc/gitlab/gitlab-secrets.json
+            mode: '600'
+        
+        - name: Start the gitlab runsvdir service on the current host
+          ansible.builtin.systemd_service:
+            name: gitlab-runsvdir.service
+            state: started
+
+        - name: Update package cache and upgrade gitlab
+          ansible.builtin.apt:
+            name: "gitlab-ce={{ gitlab_version }}"
+            state: present
+            update_cache: true
+            allow_change_held_packages: true
+          register: update_gitlab
+        
+        - name: Ensure package hold is re-applied for gitlab-ce
+          ansible.builtin.dpkg_selections:
+            name: gitlab-ce
+            selection: hold
+          # Note, this is currently required as the allow_change_held_packages in apt module above does not re-apply the hold
+        
+        - name: Wait 90s for background gitlab operations
+          ansible.builtin.pause:
+            seconds: 90
+          when: update_gitlab is changed
+        
+        - name: Stop the gitlab application
+          ansible.builtin.shell:
+            cmd: gitlab-ctl stop
+
+        - name: Stop the gitlab runsvdir service on the current host
+          ansible.builtin.systemd_service:
+            name: gitlab-runsvdir.service
+            state: stopped
+        
+        - name: Copy gitlab-secrets.json to orig
+          ansible.builtin.copy:
+            remote_src: true
+            src: /etc/gitlab/gitlab-secrets.json
+            dest: /etc/gitlab/gitlab-secrets.json.orig
+            mode: '600'
+        
+        - name: Copy gitlab-secrets.json.cluster back to active copy
+          ansible.builtin.copy:
+            remote_src: true
+            src: /etc/gitlab/gitlab-secrets.json.cluster
+            dest: /etc/gitlab/gitlab-secrets.json
+            mode: '600'
+
+        - name: Remove the temporary cluster copy of gitlab-secrets.json
+          ansible.builtin.file:
+            path: /etc/gitlab/gitlab-secrets.json.cluster
+            state: absent
+        
+        - name: Rejoin host to cluster
+          ansible.builtin.shell:
+            cmd: "pcs cluster start {{ inventory_hostname }}"
+
+        - name: Pause to allow host to rejoin cluster
+          ansible.builtin.pause:
+            seconds: 15
+
+      when: inventory_hostname != ansible_play_hosts_all[0]
+   
+- name: Remove location constraints
+  hosts: gitlab_cluster
+  gather_facts: no
+  become: true
+  run_once: true
+  tasks:
+    - name: Remove location constraints
+      ansible.builtin.shell:
+        cmd: "pcs resource clear drbd-service-clone"
+
+
+
+

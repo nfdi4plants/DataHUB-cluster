@@ -1,0 +1,77 @@
+---
+##### This role pushes an haproxy config file haproxy.cfg and/or ssl cert(s) to the host
+##### uses the haproxy format checker to check the haproxy.cfg file for errors
+##### and restarts the haproxy service to apply changes
+
+# If the haproxy.cfg file is present
+# Copy the updated file to the host
+- name: Copy haproxy.cfg to the proxy host
+  ansible.builtin.copy:
+    src: "{{ haproxy_config_file }}"
+    dest: /home/{{ ansible_user }}/haproxy.cfg
+  register: haproxy_cfg_copy
+  when: haproxy_config_file is defined
+
+# If the config file was changed
+# Copy the config file to the /etc/haproxy/ directory
+- name: Copy the haproxy.cfg file to /etc/haproxy/
+  become: true
+  ansible.builtin.copy:
+    remote_src: true
+    src: /home/{{ ansible_user }}/haproxy.cfg
+    dest: /etc/haproxy/haproxy.cfg
+    owner: root
+    mode: '600'
+  when: haproxy_cfg_copy is changed 
+
+
+##### ssl cert(s)
+#####
+# Create the certs directory if it doesn't exist
+- name: Check/create the haproxy certs directory
+  become: true
+  ansible.builtin.file:
+    path: /etc/haproxy/certs
+    state: directory
+    owner: root
+    mode: '0700'
+        
+# Copy any .pem files in the role files/
+- name: Copy .pem files if any exist
+  become: true
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /etc/haproxy/certs
+    owner: root
+    mode: '600'
+  with_fileglob:
+    - "{{ haproxy_certs_dir }}/*.pem"
+  register: haproxy_certs_copy
+  when: haproxy_certs_dir is defined
+
+#####
+# Check and reload haproxy
+# Only runs if the config file was changed or a certificate added/updated
+# Reload haproxy
+
+- block:
+  
+  # Check the haproxy.cfg file using the haproxy on the proxy host
+  # Halts the program if error detected
+  - name: Check the config file with haproxy
+    become: true
+    ansible.builtin.command:
+      cmd: |
+        haproxy -f /etc/haproxy/haproxy.cfg -c
+    
+  # If the config file was changed, and no errors are found in the check
+  # Instruct haproxy to reload
+  - name: Reload haproxy
+    become: true
+    ansible.builtin.service:
+      name: haproxy
+      state: reloaded
+  
+  when: haproxy_cfg_copy is changed or haproxy_certs_copy is changed
+
+

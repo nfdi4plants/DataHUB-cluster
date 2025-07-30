@@ -1,0 +1,26 @@
+---
+#####
+# Copy the custom sources list to the remote host
+# The role will check if a custom file exists locally and skip if none present
+- name: Copy custom apt sources file
+  block:
+    - name: Copy list of local apt sources to sources.list.d
+      ansible.builtin.copy:
+        src: custom-mirrors.list
+        dest: /etc/apt/sources.list.d/
+        mode: '0644'
+
+    - name: Delete the original apt sources
+      ansible.builtin.file:
+        path: /etc/apt/sources.list
+        state: absent
+
+    - name: Delete the original ubuntu specific apt sources
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/ubuntu.sources
+        state: absent
+
+  become: true
+  when: "'files/custom-mirrors.list' is file"
+#####
+#####

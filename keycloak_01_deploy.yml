@@ -1,0 +1,182 @@
+---
+- name: Update base system, install requirements, configure postgres and keycloak
+  hosts: keycloak
+  become: true
+  gather_facts: yes
+  roles:
+    - apt_update_sources
+    - apt_upgrade_reboot
+  tasks:
+    - name: Install postgres, openjdk-21 and python module for postgresql
+      ansible.builtin.apt:
+        name:
+          - postgresql
+          - openjdk-21-jre
+        state: present
+
+#####################
+####################    
+
+    - name: Create keycloak admins group
+      ansible.builtin.group:
+        name: "{{ keycloak_install_backup_group }}"
+        state: present
+
+    - name: Create a keycloak directory in /srv
+      ansible.builtin.file:
+        path: /srv/keycloak
+        mode: '2770'
+        owner: "{{ ansible_user }}"
+        group: "{{ keycloak_install_backup_group }}"
+        state: directory
+
+    - name: Add admin and postgres user to keycloak admin group
+      ansible.builtin.user:
+        name: "{{ item }}"
+        append: true
+        groups: "{{ keycloak_install_backup_group }}"
+      loop:
+        - "{{ ansible_user }}"
+        - postgres
+
+    - name: Get latest version tag if the version is not set in keycloak host_vars
+      ansible.builtin.uri:
+        url: https://api.github.com/repos/keycloak/keycloak/releases/latest
+      register: keycloak_latest_tag
+      when: keycloak_version == None or keycloak_version|length == 0
+
+    - name: Set keycloak_version var to latest version if not set
+      ansible.builtin.set_fact:
+        keycloak_version: "{{ keycloak_latest_tag.json.tag_name }}"
+      when: keycloak_latest_tag is not skipped
+
+    - name: Download keycloak
+      ansible.builtin.get_url:
+        dest: "/srv/keycloak/keycloak-{{ keycloak_version }}.tar.gz"
+        url: "https://github.com/keycloak/keycloak/releases/download/{{ keycloak_version }}/keycloak-{{ keycloak_version }}.tar.gz"
+        group: "{{ keycloak_install_backup_group }}"
+        mode: '660'
+    
+    - name: Unpack keycloak
+      ansible.builtin.unarchive:
+        src: "/srv/keycloak/keycloak-{{ keycloak_version }}.tar.gz"
+        remote_src: true
+        dest: /srv/keycloak/
+        creates: "/srv/keycloak/keycloak-{{ keycloak_version }}/bin/kc.sh" 
+        #Ensures this is only performed on the first run
+          
+    - name: Copy application files to /opt/keycloak
+      ansible.builtin.copy:
+        src: "/srv/keycloak/keycloak-{{ keycloak_version }}/"
+        remote_src: true
+        dest: "/opt/keycloak/"
+
+    - name: Create keycloak user
+      ansible.builtin.user:
+        name: keycloak
+        system: true
+        shell: /bin/bash
+        home: /opt/keycloak
+        state: present
+
+    - name: Give keycloak user ownership of /opt/keycloak
+      ansible.builtin.file:
+        path: /opt/keycloak
+        recurse: true
+        owner: keycloak
+        group: keycloak
+
+    - name: Clean up /srv/keycloak
+      ansible.builtin.file:
+        path: /srv/keycloak/keycloak-{{ keycloak_version }}
+        state: absent
+      
+    - name: Clean up /srv/keycloak
+      ansible.builtin.file:
+        path: "/srv/keycloak/keycloak-{{ keycloak_version }}.tar.gz"
+        state: absent
+
+
+##########################################
+#########################################
+
+
+    - name: Create keycloak postgresql user
+      ansible.builtin.shell:
+        cmd: su -c 'createuser keycloak' postgres
+      register: postgres_kc_create
+      failed_when: 
+        - postgres_kc_create.rc != 0
+        - '"already exists" not in postgres_kc_create.stderr' 
+
+    - name: Update keycloak db user password
+      ansible.builtin.shell:
+        cmd: su -c "psql -c \"ALTER ROLE keycloak PASSWORD '{{ keycloak_postgres_pw }}' ;\"" postgres
+      when: postgres_kc_create.rc == 0
+      no_log: true
+       
+    - name: Create keycloak postgres db
+      ansible.builtin.shell:
+        cmd: su -c 'createdb --owner keycloak keycloak' postgres
+      when: postgres_kc_create.rc == 0
+
+
+###########################################
+###########################################
+
+    - name: Create a keycloak.conf file file for runtime configuration options
+      ansible.builtin.template:
+        src: keycloak.conf.j2
+        dest: /opt/keycloak/conf/keycloak.conf
+        owner: keycloak
+        group: keycloak
+        mode: '640'
+   
+    - name: Run a pre-build for the keycloak application
+      ansible.builtin.shell:
+        chdir: /opt/keycloak/
+        cmd: su -c "bin/kc.sh build --db=postgres --http-relative-path={{ keycloak_relative_path }} --health-enabled=true" keycloak
+        
+    - name: Run keycloak to establish the initial admin user
+      ansible.builtin.shell:  
+        chdir: /opt/keycloak
+        cmd: su -c "bin/kc.sh start --optimized --bootstrap-admin-password={{ keycloak_initial_admin_pw }} --bootstrap-admin-username={{ keycloak_initial_admin_name }}" keycloak &
+      no_log: true
+
+    - name: Create a systemd service for keycloak
+      ansible.builtin.copy:
+        src: keycloak.service
+        dest: /etc/systemd/system/keycloak.service
+        owner: root
+        group: root
+        mode: '644'
+ 
+    - name: Enable keycloak service
+      ansible.builtin.systemd_service:
+        name: keycloak.service
+        enabled: true
+
+    - name: Wait for keycloak to be up
+      ansible.builtin.shell:
+        cmd: "curl --head -fsS http://localhost:9000{{ keycloak_relative_path }}/health/ready"
+      register: keycloak_ready_check
+      until: keycloak_ready_check.rc == 0
+      retries: 10
+      delay: 10
+
+    - name: Reboot the host, after which systemd will control keycloak
+      ansible.builtin.reboot:
+
+
+
+ 
+
+        
+
+
+
+
+
+
+
+

@@ -1,0 +1,62 @@
+---
+- name: Create/update services for running playbooks
+  hosts: all
+  gather_facts: no
+  run_once: true
+  tasks: 
+    
+    - name: Daily gitlab backup
+      vars:
+        service_playbook: gitlab_cluster_05_00_invoke_backup.yml 
+        service_name: ansible-test-gitlab-daily-backup
+        systemd_calendar_entry: "*-*-* 00:05:00"
+      ansible.builtin.import_role:
+        name: playbook_service_timer
+
+    - name: Upgrade gitlab on cluster
+      vars:
+        service_playbook: gitlab_cluster_03_00_master_upgrade_gitlab.yml
+        service_name: ansible-test-gitlab-version-upgrade
+        systemd_calendar_entry: "Tue *-*-01..07 02:05:05"
+      ansible.builtin.import_role:
+        name: playbook_service_timer
+
+    - name: Upgrade gitlab cluster hosts (excl. gitlab-ce)
+      vars:
+        service_playbook: gitlab_cluster_04_upgrade_host.yml
+        service_name: ansible-test-cluster-host-upgrade
+        systemd_calendar_entry: "Tue *-*-08..14 02:05:05"
+      ansible.builtin.import_role:
+        name: playbook_service_timer
+
+    - name: Upgrade external proxy host
+      vars:
+        service_playbook: haproxy_03_upgrade_host.yml
+        service_name: ansible-test-haproxy-host-upgrade
+        systemd_calendar_entry: "Tue *-*-15..21 02:05:05"
+      ansible.builtin.import_role:
+        name: playbook_service_timer
+
+    - name: Upgrade keycloak host
+      vars:
+        service_playbook: keycloak_03_upgrade_host.yml
+        service_name: ansible-test-keycloak-host-upgrade
+        systemd_calendar_entry: "Tue *-*-15..21 02:05:55"
+      ansible.builtin.import_role:
+        name: playbook_service_timer
+
+    - name: Backup and upgrade keycloak
+      vars:
+        service_playbook: keycloak_02_backup_upgrade.yml
+        service_name: ansible-test-keycloak-backup-upgrade
+        systemd_calendar_entry: "Tue *-*-22..28 02:05:05"
+      ansible.builtin.import_role:
+        name: playbook_service_timer
+#
+#    - name: 
+#      vars:
+#        service_playbook: 
+#        service_name: 
+#        systemd_calendar_entry: 
+#      ansible.builtin.import_role:
+#        name: playbook_service_timer 

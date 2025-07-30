@@ -1,0 +1,5 @@
+---
+- import_playbook: gitlab_cluster_03_01_upgrade_gitlab.yml
+- import_playbook: gitlab_cluster_03_02_apply_patches.yml
+- import_playbook: gitlab_cluster_03_03_sync_gitlab_secrets.yml
+

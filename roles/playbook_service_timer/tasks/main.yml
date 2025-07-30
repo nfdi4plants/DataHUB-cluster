@@ -1,0 +1,37 @@
+- name: Create/update service from template
+  local_action:
+    module: ansible.builtin.template
+    src: run_ansible_playbook.service.j2
+    dest: "services_timers/{{ service_name }}.service"
+    mode: '660'
+  register: service_update
+
+- name: Create/update service timer from template
+  local_action: 
+    module: ansible.builtin.template
+    src: run_ansible_playbook.timer.j2
+    dest: "services_timers/{{ service_name }}.timer"
+    mode: '660'
+  register: timer_update
+
+- name: Create symlink for service and timer in systemd/system
+  become: true
+  local_action:
+    module: ansible.builtin.file
+    src: "{{ playbook_dir }}/services_timers/{{ service_name }}.{{ item }}"
+    path: "/etc/systemd/system/{{ service_name }}.{{ item }}"
+    state: link
+  loop:
+    - service
+    - timer
+
+- name: Activate timer
+  become: true
+  local_action:
+    module: ansible.builtin.systemd_service
+    name: "{{ service_name }}.timer"
+    enabled: true
+    daemon_reload: true
+    state: restarted
+  when: timer_update is changed or service_update is changed
+

@@ -1,0 +1,23 @@
+---
+- name: Bring down gitlab cluster services, update hosts and bring gitlab cluster back up
+  hosts: gitlab_cluster
+  become: true
+  roles:
+    - apt_upgrade_reboot
+  pre_tasks:
+    - name: Stop gitlab cluster
+      ansible.builtin.shell:
+        cmd: pcs cluster stop --all
+      run_once: true
+
+    - name: Ensure package hold is applied for gitlab-ce before host upgrade
+      ansible.builtin.dpkg_selections:
+        name: gitlab-ce
+        selection: hold
+  tasks:
+    - name: Start gitlab cluster
+      ansible.builtin.shell:
+        cmd: pcs cluster start --all
+      run_once: true 
+
+

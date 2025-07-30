@@ -1,0 +1,27 @@
+---
+###### This role will assemble one or more physical devices into a logical volume
+# Drives not part of the LVM will be added to it.
+# Will not remove devices from a vg/lvm
+# The following vars must be specified in the calling play:
+# vg_name 
+# lvm_name
+# Note: Resizing the filesystem **is not** part of this role
+######
+
+# This will add and resize any the vg for any new devices listed in pvs
+- name: Create or expand the volume group
+  become: true
+  community.general.lvg:
+    pvs: "{{ physical_volumes }}"
+    vg: "vg_{{ vg_name }}"
+    state: present
+    remove_extra_pvs: false
+
+- name: Create or expand an lvm
+  become: true
+  community.general.lvol:
+    lv: "lv_{{ lvm_name }}"
+    vg: "vg_{{ vg_name }}"
+    size: "+100%FREE"
+    state: present
+  

@@ -1,0 +1,60 @@
+---
+- name: Apply patches to gitlab source
+  hosts: gitlab_cluster
+  gather_facts: no
+  become: true
+  vars:
+    patch_applied: false
+  tasks:
+    - name: Patch lfs_token lifetime
+      ansible.builtin.lineinfile:
+        path: /opt/gitlab/embedded/service/gitlab-rails/lib/gitlab/lfs_token.rb
+        search_string: "DEFAULT_EXPIRE_TIME = 7200"
+        line: "DEFAULT_EXPIRE_TIME = 86400 # 24hrs"
+        owner: root
+        mode: '644'
+        state: present
+      notify: Patch applied flag
+    
+    - name: Patch to prevent use of workhorse s3 client
+      ansible.builtin.lineinfile:
+        path: /opt/gitlab/embedded/service/gitlab-rails/lib/object_storage/direct_upload.rb
+        insertafter: "def use_workhorse_s3_client?" 
+        line: "      return false"
+        owner: root
+        mode: '644'
+        state: present
+      notify: Patch applied flag
+
+    - name: Patch to increase S3 transfer chunk size
+      ansible.builtin.lineinfile:
+        path: /opt/gitlab/embedded/service/gitlab-rails/config/initializers/carrierwave_s3_encryption_headers_patch.rb
+        search_string: "file.multipart_chunk_size = 10485760"
+        line: "            file.multipart_chunk_size = 10485760 / 10 * 1024 # 1 GiB"
+        owner: root
+        mode: '644'
+        state: present
+      notify: Patch applied flag
+
+  handlers:
+    - name: Patch applied flag
+      ansible.builtin.set_fact:
+        patch_applied: true
+
+- name: Restart gitlab if patch applied to primary host
+  hosts: gitlab_cluster
+  gather_facts: no
+  roles:
+    - gitlab_find_primary
+  tasks:
+    - name: Restart gitlab if patch applied and host is primary
+      ansible.builtin.shell:
+        cmd: gitlab-ctl restart 
+      become: true
+      when:
+        - is_primary is defined
+        - is_primary is true
+        - patch_applied is defined
+        - patch_applied is true
+
+

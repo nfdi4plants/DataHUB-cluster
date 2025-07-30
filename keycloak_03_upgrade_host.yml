@@ -1,0 +1,9 @@
+---
+- name: Backup keycloak and upgrade host
+  hosts: keycloak
+  gather_facts: no
+  become: true
+  roles:
+    - keycloak_backup
+    - apt_upgrade_reboot
+

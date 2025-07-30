@@ -1,0 +1,27 @@
+---
+- name: Update, upgrade, reboot and clear cache
+  block:
+    - name: Update apt cache and upgrade
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: safe
+
+    # Checks for the apt flag set when updates request a system reboot
+    # Stores the output as a registered variable reboot_check     
+    - name: Check for reboot flag after updates
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_check
+
+    # If the flag was found, initiate a reboot
+    - name: reboot if the flag is found
+      ansible.builtin.reboot:
+      when: reboot_check.stat.exists
+
+    # Finally, clean up the apt package cache
+    - name: Clean apt cache
+      ansible.builtin.apt:
+        autoclean: true
+        autoremove: true
+    
+  become: true

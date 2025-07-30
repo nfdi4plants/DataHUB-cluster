@@ -1,0 +1,9 @@
+---
+##### This playbook updates only the haproxy config and/or certs 
+# without applying VM updates or reboot.
+#####
+- name: Sync config and certs
+  hosts: proxies
+  roles: 
+    - haproxy_config_cert_update
+

@@ -1,0 +1,11 @@
+---
+- name: Query mountpoints
+  ansible.builtin.shell:
+    cmd: "cat /proc/mounts | grep -q -s '/var/opt/gitlab'"
+  register: mount_query
+  ignore_errors: true
+    
+- name: Set as primary if gitlab mountpoint found
+  ansible.builtin.set_fact:
+    is_primary: true
+  when: mount_query.rc == 0

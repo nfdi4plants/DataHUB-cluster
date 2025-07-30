@@ -1,0 +1,22 @@
+---
+- name: Start a gitlab backup on the primary host
+  hosts: gitlab_cluster
+  gather_facts: no
+  roles:
+    - gitlab_find_primary
+  tasks:
+    - name: Start backup
+      ansible.builtin.shell:
+        cmd: "gitlab-backup create SKIP={{ backup_skip }} STRATEGY=copy"
+      become: true
+      when: 
+        - is_primary is defined
+        - is_primary is true
+
+# Run additional backup playbooks as required
+# - import_playbook:
+
+- import_playbook: gitlab_cluster_05_01_sync_s3.yml     
+
+
+

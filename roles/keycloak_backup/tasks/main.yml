@@ -1,0 +1,25 @@
+---
+- name: Read the current keycloak version
+  ansible.builtin.slurp:
+    src: /opt/keycloak/version.txt
+  register: keycloak_version_file
+
+- name: Extract the version string
+  ansible.builtin.set_fact:
+    keycloak_prev_version_string: "{{ keycloak_version_file['content']|b64decode|replace(' ', '')|replace('\n','') }}"
+
+- name: Set the backup time
+  ansible.builtin.set_fact:
+    keycloak_backup_time: "{{ now(utc=true,fmt='%y%m%d') }}"
+
+- name: Ensure the backups directory is present
+  ansible.builtin.file:
+    path: /srv/keycloak/backups
+    group: "{{ keycloak_install_backup_group }}"
+    mode: '775'
+    state: directory
+
+- name: Create a postgres backup dump
+  ansible.builtin.shell:
+    cmd: su -c "pg_dump -d keycloak -U postgres > /srv/keycloak/backups/{{ keycloak_backup_time }}_{{ keycloak_prev_version_string }}" postgres
+    creates: "/srv/keycloak/backups/{{ keycloak_backup_time }}_{{ keycloak_prev_version_string }}"

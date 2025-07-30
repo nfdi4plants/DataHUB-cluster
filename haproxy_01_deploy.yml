@@ -1,0 +1,22 @@
+---
+##### This playbook is for the initial setup of the haproxy for the DataHUB environment. 
+# Note: The role haproxy_config_cert_update includes a config and certs check, i.e. haproxy -f /etc/haproxy/haproxy.cfg -c
+# If this check is failed, the playbook will stop **before** restarting the haproxy service.
+#####
+
+- name: Update host base OS, ensure haproxy is installed and sync config and certs
+  hosts: proxies
+  roles:
+    - apt_update_sources
+    - apt_upgrade_reboot
+  tasks:
+    - name: Install haproxy
+      become: true
+      ansible.builtin.package:
+        name: haproxy
+        state: present
+    
+    - name: Sync config and certs to the proxy
+      ansible.builtin.include_role:
+        name: haproxy_config_cert_update
+

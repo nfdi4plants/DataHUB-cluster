@@ -1,0 +1,484 @@
+---
+###### This script deploys the gitlab cluster. See the group_vars for cluster variables
+
+
+- name: Create cluster hosts file and prepare keys 
+  hosts: gitlab_cluster
+  tasks:
+    - name: Write the hosts and ips to the hosts file
+      become: true
+      ansible.builtin.lineinfile:
+        path: '/etc/hosts'
+        line: "{{ hostvars[item]['ansible_host'] }} {{ item }}"
+        state: present
+        owner: root
+        mode: '0644'
+      loop: "{{ ansible_play_hosts }}"
+    
+    - name: Update remote hostname
+      become: true
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Generate openssh keypair
+      local_action: 
+        module: community.crypto.openssh_keypair
+        path: "keys/{{ hostvars[inventory_hostname].group_names[0] }}"
+        comment: "shared cluster key"
+        type: ed25519
+        state: present
+      run_once: true
+
+    - name: Share private key to all hosts
+      ansible.builtin.copy:
+        src: "keys/{{ hostvars[inventory_hostname].group_names[0] }}"
+        dest: "/home/{{ ansible_user }}/.ssh/id_ed25519"
+        mode: '0600'
+    
+    - name: Add public key to all host authorized_keys
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ lookup('file', 'keys/' + hostvars[inventory_hostname].group_names[0] + '.pub') }}"
+        state: present
+
+
+- name: Swap in local repo sources list, update/upgrade base OS, disable apt.daily tasks
+  hosts: gitlab_cluster
+  roles:
+    - apt_update_sources
+    - apt_upgrade_reboot
+  tasks: 
+    - block:
+      - name: Stop and disable apt.daily services and timers
+        ansible.builtin.systemd_service:
+          name: "{{ item }}"
+          enabled: false
+          state: stopped
+          masked: true
+        loop:
+          - apt-daily.timer
+          - apt-daily-upgrade.timer
+          - apt-daily.service
+          - apt-daily-upgrade.service
+    
+      - name: Modify the auto-upgrade conf file
+        ansible.builtin.lineinfile:
+          path: /etc/apt/apt.conf.d/20auto-upgrades
+          search_string: "{{ item.0 }}"
+          line: "{{ item.1 }}"
+        loop:
+          - ['APT::Periodic::Update-Package-Lists "1";', 'APT::Periodic::Update-Package-Lists "0";']
+          - ['APT::Periodic::Unattended-Upgrade "1";', 'APT::Periodic::Unattended-Upgrade "0";']
+      become: true
+
+- name: Install drbd and cluster packages
+  gather_facts: no
+  hosts: gitlab_cluster
+  become: true
+  # Perform in serial (one host at a time)
+  serial: 1
+  tasks:
+    - name: Add linbit ppa
+      ansible.builtin.apt_repository:
+        repo: ppa:linbit/linbit-drbd9-stack
+        state: present
+    
+    - name: Install drbd, pacemaker and fencing packages
+      ansible.builtin.apt:
+        name: 
+          - drbd-utils
+          - drbd-dkms
+          - pacemaker
+          - pcs
+          - resource-agents-base
+          - resource-agents-common
+          - resource-agents-extra
+          - sbd 
+          - watchdog
+        state: present
+        update_cache: true
+
+###
+###
+
+- name: Install gitlab, reconfigure and then stop gitlab services
+  hosts: gitlab_cluster
+  become: true
+  # Perform in serial (one host at a time)
+  serial: 1
+  tasks:
+    - name: Download gitlab repository initialisation script
+      ansible.builtin.get_url:
+        url: "https://packages.gitlab.com/install/repositories/gitlab/gitlab-ce/script.deb.sh"
+        dest: "/home/{{ ansible_user }}/script.deb.sh"
+      register: gitlab_repo_download
+    
+    - name: Run gitlab repository initialisation
+      ansible.builtin.command:
+        cmd: "bash /home/{{ ansible_user }}/script.deb.sh"
+      when: gitlab_repo_download is changed
+
+     - name: Query the repo for gitlab-ce
+      ansible.builtin.shell:
+        cmd: apt-cache show gitlab-ce --no-all-versions | grep Version
+      register: candidate_gitlab
+      when: gitlab_version == None or gitlab_version|length == 0
+
+    - name: Set gitlab_version var to latest release
+      ansible.builtin.set_fact:
+        gitlab_version: "{{ (candidate_gitlab.stdout | split )[1] }}"
+      when: candidate_gitlab is not skipped
+
+    - name: Install gitlab
+      ansible.builtin.apt:
+        name: "gitlab-ce={{ gitlab_version }}"
+        state: present
+        update_cache: true
+
+    - name: Set hold on gitlab package version
+      ansible.builtin.dpkg_selections:
+        name: gitlab-ce
+        selection: hold
+
+    - name: Stat for the /var/opt/gitlab directory 
+      # This directory is absent until the first reconfigure
+      ansible.builtin.stat:
+        path: /var/opt/gitlab
+      register: var_opt_gitlab
+
+    - name: Run first gitlab reconfigure
+      ansible.builtin.shell:
+        cmd: "gitlab-ctl reconfigure"
+      when: var_opt_gitlab.stat.exists == False
+      retries: 1
+      environment: 
+        GITLAB_ROOT_PASSWORD: "{{ gitlab_initial_root_pw }}"
+    
+    - name: Make a copy of the original gitlab-secrets.json
+      ansible.builtin.copy:
+        remote_src: true
+        src: /etc/gitlab/gitlab-secrets.json
+        dest: /etc/gitlab/gitlab-secrets.json.orig
+        mode: "600"
+        owner: root
+
+    - name: Place a flag to prevent backups during upgrade
+      ansible.builtin.file:
+        path: /etc/gitlab/skip-auto-backup
+        owner: root
+        mode: "644"
+        state: touch
+    
+    - name: Disable gitlab service
+      ansible.builtin.systemd_service:
+        name: gitlab-runsvdir.service
+        enabled: false
+###
+###
+
+- name: Create the drbd volume
+  hosts: gitlab_cluster
+  become: true
+  vars:
+    physical_volumes: "{{ gitlab_drbd_volumes }}"
+    vg_name: "drbd"
+    lvm_name: "gitlab"
+  
+  roles:
+    - lvm_create_extend
+
+  tasks:
+    - name: Check for drbd first configuration marker file
+      ansible.builtin.stat:
+        path: /etc/drbd-first-configure
+      register: drbd_first_configure
+
+    - block:
+      
+      - name: Distribute the drbd config file
+        ansible.builtin.template:
+          src: drbd-gitlab-service.res.j2
+          dest: /etc/drbd.d/drbd-gitlab-service.res
+
+      - name: Update drbd usage survey reponse
+        ansible.builtin.lineinfile:
+          path: /etc/drbd.d/global_common.conf
+          search_string: "usage-count yes;"
+          line: "usage-count no;"
+          state: present
+
+      - name: Create new drbd service metadata
+        ansible.builtin.shell:
+          cmd: drbdadm create-md drbd-gitlab-service --force
+      
+      - name: Bring up the drbd service
+        ansible.builtin.shell:
+          cmd: drbdadm up drbd-gitlab-service
+      
+      - name: Leave a marker that drbd was configured
+        ansible.builtin.file:
+          path: /etc/drbd-first-configure
+          owner: root
+          mode: '644'
+          state: touch
+
+      become: true
+      when: drbd_first_configure.stat.exists == false  
+    
+    - block:
+      
+      - name: Pause to allow all host volumes to come up
+        ansible.builtin.pause:
+          seconds: 5
+      
+      - name: Clear the sync cache
+        ansible.builtin.shell:
+          cmd: drbdadm --clear-bitmap new-current-uuid drbd-gitlab-service/0
+        
+      - name: Set this host as primary
+        ansible.builtin.shell:
+          cmd: drbdadm primary drbd-gitlab-service
+
+      - name: Initialise the drbd volume filesystem to xfs
+        community.general.filesystem:
+          dev: /dev/drbd0
+          fstype: xfs 
+          state: present
+      
+      - name: Create a mount directory
+        ansible.builtin.file:
+          path: /mnt/gitlab/
+          state: directory
+
+      - name: Mount the drbd volume
+        ansible.posix.mount:
+          path: /mnt/gitlab
+          src: /dev/drbd0
+          fstype: xfs
+          state: ephemeral
+    
+      - name: Stop the gitlab application
+        ansible.builtin.shell:
+          cmd: gitlab-ctl stop 
+
+      - name: rsync the gitlab /var/opt directory to the drbd volume
+        ansible.posix.synchronize:
+          archive: true
+          src: /var/opt/gitlab/
+          dest: /mnt/gitlab/
+        delegate_to: "{{ inventory_hostname }}"
+
+      run_once: true 
+      become: true
+      when: drbd_first_configure.stat.exists == false 
+
+###
+###
+
+- name: Initialise cluster   
+  hosts: gitlab_cluster
+  become: true
+  vars:
+    regex: "[\\[\\]',]"
+    host_ip_list: ""
+  tasks:
+    - name: Start and enable the pcs daemon
+      ansible.builtin.systemd_service:
+        name: pcsd.service
+        state: started
+        enabled: true
+
+    - name: Set the hacluster user password
+      ansible.builtin.user:
+        name: hacluster
+        password: "{{ 'clusterhost' | password_hash('sha512') }}"
+        state: present
+
+    - name: Check for pcsd known_hosts file
+      run_once: true
+      # This indicates if the cluster has previously been configured
+      ansible.builtin.stat:
+        path: /var/lib/pcsd/known-hosts
+      register: pcsd_hosts
+
+###
+# Run only when no prior configuration exists
+###
+    - block:
+      - name: Authorise to all cluster hosts
+        ansible.builtin.shell:
+          cmd: "pcs host auth {{ ansible_play_hosts|list|regex_replace(regex, '') }} -u hacluster -p clusterhost"
+        
+      - name: Build a string of [host ip] blocks for the cluster initialisation command   
+        ansible.builtin.set_fact:
+          host_ip_list: "{{ host_ip_list ~ item ~ ' addr=' ~ hostvars[item]['ansible_host'] ~ ' '}}"
+        loop: "{{ ansible_play_hosts }}"
+      
+      - name: Initialise the cluster
+        ansible.builtin.shell:
+          cmd: "pcs cluster setup dataHUB-cluster {{host_ip_list}}--force"
+      
+      - name: Start the cluster
+        ansible.builtin.shell:
+          cmd: "pcs cluster start --all"
+
+      - name: Disable STONITH while we set up SBD
+        ansible.builtin.shell:
+          cmd: "pcs property set stonith-enabled=false"
+    
+      become: true
+      run_once: true
+      when: pcsd_hosts.stat.exists is false
+    
+###
+###
+        
+- name: Configure watchdog and SBD
+  gather_facts: no
+  hosts: gitlab_cluster
+  become: true
+  tasks:
+    - name: Add softdog as a module for watchdog
+      ansible.builtin.lineinfile:
+        path: /etc/default/watchdog
+        search_string: 'watchdog_module="none"'
+        line: 'watchdog_module="softdog"'
+        state: present
+      register: watchdog_mod
+
+    - name: Ensure SBD config directory exists
+      ansible.builtin.file:
+        path: /etc/sysconfig
+        owner: root
+        mode: "755"
+        state: directory
+
+    - name: Place SBD config file
+      ansible.builtin.copy:
+        src: sbd.config
+        dest: /etc/sysconfig/sbd
+        owner: root
+        mode: "640"
+      register: sbd_conf
+
+    - name: enable watchdog
+      ansible.builtin.systemd_service:
+        name: watchdog
+        enabled: true
+      
+    - name: enable SBD
+      ansible.builtin.systemd_service:
+        name: sbd
+        enabled: true
+
+    - name: Reboot hosts
+      ansible.builtin.reboot:
+      when: watchdog_mod is changed or sbd_conf is changed
+
+    - block:
+      - name: Start cluster
+        ansible.builtin.shell:
+          cmd: "pcs cluster start --all"
+      
+      - name: Wait for the cluster to be ready
+        ansible.builtin.pause:
+          seconds: 10
+      
+      - name: Re-enable STONITH
+        ansible.builtin.shell:
+          cmd: pcs property set stonith-enabled=true
+      
+      - name: Set cluster watchdog timeout
+        ansible.builtin.shell:
+          cmd: pcs property set stonith-watchdog-timeout=10
+      
+      - name: Set cluster STONITH timeout
+        ansible.builtin.shell:
+          cmd: pcs property set stonith-timeout=15 
+      
+      become: true  
+      run_once: true
+      when: watchdog_mod is changed or sbd_conf is changed
+
+
+- name: Build the cluster resource config file and apply it
+  hosts: gitlab_cluster
+  gather_facts: no
+  become: true
+  run_once: true
+  vars:
+    host_count: "{{ ansible_play_hosts | length }}"
+  tasks:
+    
+    - name: Ensure cluster is up
+      ansible.builtin.shell:
+        cmd: pcs cluster start --all
+    
+    - name: Wait for cluster to be ready
+      ansible.builtin.pause:
+        seconds: 10
+    
+    - name: Create base CIB file
+      ansible.builtin.shell:
+        cmd: pcs cluster cib gitlab-cluster-initial.cfg
+        creates: "/home/{{ ansible_user }}/gitlab-cluster-initial.cfg"
+      register: create_CIB
+
+    - block:
+      
+      ### Agents ###
+        
+        - name: Add DRBD agent
+          ansible.builtin.shell:
+            cmd: pcs -f gitlab-cluster-initial.cfg resource create drbd-service ocf:linbit:drbd drbd_resource=drbd-gitlab-service op monitor interval=29 role=Promoted monitor interval=31 role=Unpromoted
+        
+        - name: Configure drbd-service to be a promotable resource
+          ansible.builtin.shell:
+            cmd: "pcs -f gitlab-cluster-initial.cfg resource promotable drbd-service promoted-node-max=1 clone-max={{ host_count }} clone-node-max={{ host_count|int|abs -1}} notify=true"
+
+        - name: Add filesystem agent (mount drbd0)
+          ansible.builtin.shell:
+            cmd: pcs -f gitlab-cluster-initial.cfg resource create fs-gitlab ocf:heartbeat:Filesystem device=/dev/drbd0 directory=/var/opt/gitlab fstype=xfs op start interval=0 timeout=60 op stop interval=0 timeout=60 op monitor interval=20s timeout=40
+
+        - name: Add systemd resource to bring gitlab-runsvdir up/down
+          ansible.builtin.shell:
+            cmd: pcs -f gitlab-cluster-initial.cfg resource create run-gitlab systemd:gitlab-runsvdir op start interval=0 timeout=120 op stop interval=0 timeout=120 op monitor interval=20 timeout=100
+        
+        - name: Add IP agent to manage shared gitlab IP
+          ansible.builtin.shell:
+            cmd: "pcs -f gitlab-cluster-initial.cfg resource create gitlab-ip ocf:heartbeat:IPaddr2 ip={{ gitlab_shared_ip }} cidr_netmask=32 op start interval=0 timeout=20 op stop interval=0 timeout=20 op monitor interval=20 timeout=40"
+
+      ### Groups ###
+
+        - name: Create group for gitlab application and IP
+          ansible.builtin.shell:
+            cmd: pcs -f gitlab-cluster-initial.cfg resource group add g-gitlab run-gitlab gitlab-ip 
+
+      ### Constraints ###
+
+        - name: Bind filesystem mount to primary drbd host
+          ansible.builtin.shell:
+            cmd: pcs -f gitlab-cluster-initial.cfg constraint colocation add fs-gitlab with Promoted drbd-service-clone
+
+        - name: Bind the gitlab application and shared IP to the primary drbd host
+          ansible.builtin.shell:
+            cmd: pcs -f gitlab-cluster-initial.cfg constraint colocation add g-gitlab with Promoted drbd-service-clone
+
+        - name: Ensure drbd promotion is complete before attempting to mount the drbd0 volume
+          ansible.builtin.shell:
+            cmd: pcs -f gitlab-cluster-initial.cfg constraint order promote drbd-service-clone then start fs-gitlab
+
+        - name: Ensure the drbd0 volume is mounted before starting the gitlab application
+          ansible.builtin.shell:
+            cmd: pcs -f gitlab-cluster-initial.cfg constraint order start fs-gitlab then start g-gitlab
+
+      ### Apply the configuration ###
+
+        - name: Apply the configuration to the cluster
+          ansible.builtin.shell:
+            cmd: pcs cluster cib-push gitlab-cluster-initial.cfg --config
+
+      become: true
+      when: create_CIB is changed
+
+

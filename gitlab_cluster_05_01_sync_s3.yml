@@ -1,0 +1,86 @@
+---
+
+- name: Sync the S3 object store data to the ansible controller sync mount
+  hosts: gitlab_cluster
+  run_once: true
+  gather_facts: no
+  vars:
+    buckets:
+      - "{{ bucket_artifacts | replace (\"'\", '') }}"
+      - "{{ bucket_mrdiffs | replace (\"'\", '') }}"
+      - "{{ bucket_lfs | replace (\"'\", '') }}"
+      - "{{ bucket_uploads | replace (\"'\", '') }}"
+      - "{{ bucket_packages | replace (\"'\", '') }}"
+      - "{{ bucket_dependency_proxy | replace (\"'\", '') }}"
+      - "{{ bucket_terraform_state | replace (\"'\", '') }}"
+      - "{{ bucket_ci_secure | replace (\"'\", '') }}"
+      - "{{ bucket_pages | replace (\"'\", '') }}"
+      - "{{ bucket_backups | replace (\"'\", '') }}"
+  
+  tasks:
+    - name: Ensure the sync volume is mounted
+      become: true
+      local_action:
+        module: ansible.posix.mount
+        src: "{{ device_for_backup_sync }}"
+        path: "{{ mount_for_backup_sync }}"
+        fstype: "{{ fstype_for_backup_sync }}"
+        state: mounted
+    
+    - name: Sync buckets from primary object store (R2) to local  
+      ansible.builtin.include_role:
+        name: s3cmd-sync
+      vars:
+        endpoint: "{{ s3_endpoint }}"
+        access_key: "{{ s3_access_key }}"
+        secret_key: "{{ s3_secret_key }}"
+        cache_location: "{{ mount_for_backup_sync }}/s3-sync-cache/R2-to-local_cache"
+        source_location: "S3://{{ item }}/"
+        destination_location: "{{ mount_for_backup_sync }}/{{ item }}/"
+      loop: "{{ buckets }}"
+  
+    - name: Sync S3 buckets from local to the secondary S3 object store (R1)
+      ansible.builtin.include_role:
+        name: s3cmd-sync
+      vars:
+        endpoint: "{{ s3_secondary_endpoint }}"
+        access_key: "{{ s3_secondary_access_key }}"
+        secret_key: "{{ s3_secondary_secret_key }}"
+        cache_location: "{{ mount_for_backup_sync }}/s3-sync-cache/local-to-R1_cache"
+        source_location: "{{ mount_for_backup_sync }}/{{ item }}/"
+        destination_location: "S3://{{ item }}/"
+      loop: "{{ buckets }}"
+      
+- name: Sync the repository data from the primary gitlab cluster host to local
+  hosts: gitlab_cluster
+  gather_facts: no
+  roles:
+    - gitlab_find_primary
+  tasks:
+    - name: Pull repository data from the primary gitlab cluster host
+      become: true
+      ansible.posix.synchronize:
+        mode: pull
+        src: /var/opt/gitlab/git-data/repositories
+        dest: "{{ mount_for_backup_sync }}/{{ repository_backup_name }}/"
+        archive: false
+        delete: true
+        rsync_opts:
+          - "-rlpt"
+          - "--omit-dir-times"
+      when: 
+        - is_primary is defined
+        - is_primary is true
+     
+    - name: Sync the repository data to the secondary S3 object store (R1)
+      run_once: true
+      ansible.builtin.include_role:
+        name: s3cmd-sync
+      vars:
+        endpoint: "{{ s3_secondary_endpoint }}"
+        access_key: "{{ s3_secondary_access_key }}"
+        secret_key: "{{ s3_secondary_secret_key }}"
+        cache_location: "{{ mount_for_backup_sync }}/s3-sync-cache/test-repo-to-r1_cache"
+        source_location: "{{ mount_for_backup_sync }}/{{ repository_backup_name }}/"
+        destination_location: "S3://{{ repository_backup_name }}/"
+     
