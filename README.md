@@ -54,7 +54,11 @@ The process of provisioning the cloud resources will depend on your cloud provid
 	```
 4. Clone the DataHUB cluster project 
 	```
-	git clone .... /srv/ansible/datahub-cluster
+	git clone https://github.com/nfdi4plants/DataHUB-cluster.git /srv/ansible/datahub-cluster
+	```
+	or, if ssh is preferred
+	```
+	git clone git@github.com:nfdi4plants/DataHUB-cluster.git /srv/ansible/datahub-cluster
 	```
 5. Place initial key files
 	+ Copy the Ansible controller private key to ```keys/```. Ideally, this is the key that was used to initialize the other VMs. If it is created at this step, ensure the public key has been added to the VMs that will be managed by the Ansible controller.
