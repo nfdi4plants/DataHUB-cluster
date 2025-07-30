@@ -15,8 +15,3 @@
 
 # Run additional backup playbooks as required
 # - import_playbook:
-
-- import_playbook: gitlab_cluster_05_01_sync_s3.yml     
-
-
-
