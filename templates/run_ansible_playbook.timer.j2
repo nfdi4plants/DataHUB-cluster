@@ -1,0 +1,9 @@
+[Unit]
+Description="Initiate an ansible playbook for DataPLANT DataHUB services"
+
+[Timer]
+OnCalendar={{ systemd_calendar_entry }}
+Unit={{ service_name }}.service
+
+[Install]
+WantedBy=timers.target

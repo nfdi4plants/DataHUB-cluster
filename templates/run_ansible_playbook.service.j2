@@ -1,0 +1,7 @@
+[Unit]
+Description="Run a playbook for DataPLANT DataHUB services"
+
+[Service]
+Type=oneshot
+ExecStart={{ ansible_playbook_python | dirname }}/ansible-playbook {{ playbook_dir }}/{{ service_playbook }} -i {{ inventory_dir }}
+WorkingDirectory={{ playbook_dir }}

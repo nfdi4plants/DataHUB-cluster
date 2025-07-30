@@ -1,0 +1,15 @@
+---
+# Address for the ansible host to connect to the haproxy host
+ansible_host: 
+# e.g. ansible_host: 192.168.10.10
+
+# HAProxy config file
+# Expected to be in files/
+# Will be renamed to haproxy.cfg on the haproxy host
+haproxy_config_file:
+# e.g. haproxy_config_file: "prod-haproxy.cfg" 
+
+# Directory containing .pem certs to copy to haproxy host
+haproxy_certs_dir: 
+# e.g. haproxy_certs_dir: "certs/prod-myservice/"
+

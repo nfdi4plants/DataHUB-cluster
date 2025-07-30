@@ -1,0 +1,22 @@
+# Keycloak configuration
+
+# The database vendor.
+db=postgres
+
+# The username of the database user.
+db-username=keycloak
+
+# The password of the database user.
+db-password={{ keycloak_postgres_pw }}
+
+# Enable http listener
+# haproxy is providing edge TLS termination
+http-enabled=true
+
+# Enable processing of the X-Forwarded-For header
+# haproxy is adding an X-Forwarded-For header with the client IP
+proxy-headers=xforwarded
+
+# Hostname for the Keycloak server.
+hostname={{ keycloak_hostname }} 
+

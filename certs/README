@@ -1,0 +1,2 @@
+ ## Ensure all certificates in this directory have the mode 660
+ ## All files here with the .pem extenstion will be sent to the associated proxy host

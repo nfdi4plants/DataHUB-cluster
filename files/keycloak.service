@@ -1,0 +1,16 @@
+[Unit]
+Description=Keycloak Server
+After=syslog.target network.target
+Before=httpd.service
+	
+[Service]
+Type=exec
+User=keycloak
+Group=keycloak
+RemainAfterExit=yes
+LimitNOFILE=102642
+ExecStart=/opt/keycloak/bin/kc.sh start --optimized
+StandardOutput=null
+	
+[Install]
+WantedBy=multi-user.target

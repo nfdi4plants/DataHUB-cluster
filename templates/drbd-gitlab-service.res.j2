@@ -1,0 +1,27 @@
+resource drbd-gitlab-service {
+
+	volume 0{
+		device /dev/drbd0;
+		disk /dev/vg_{{ vg_name }}/lv_{{ lvm_name }};
+		meta-disk internal;
+	}
+		
+	net{
+		protocol C;
+	}
+		
+	connection-mesh{
+		hosts {{ ansible_play_hosts|list|regex_replace('[\],\[\']', '') }};
+	}
+
+{% set ns = namespace(counter = 0) %}
+{% for drbd_host in ansible_play_hosts %}
+	on {{ drbd_host }}{
+		address {{ hostvars[drbd_host]['ansible_host'] }}:7788;
+		node-id {{ ns.counter }};
+	}
+{% set ns.counter = ns.counter + 1 %}
+{% endfor %}
+
+}
+

@@ -1,0 +1,9 @@
+---
+# Address for the ansible host to connect to the gitlab cluster host
+ansible_host: 
+# e.g. ansible_host: 192.168.10.21
+
+# Volume(s) to include in the gitlab lvm as the basis for the drbd replicated volume
+gitlab_drbd_volumes:
+# e.g. gitlab_drbd_volumes:
+#  	- /dev/vdb

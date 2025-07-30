@@ -1,0 +1,139 @@
+---
+#########################
+# Cluster variables
+
+# Fixed IP address for the gitlab service
+# To be managed by the gitlab cluster
+gitlab_shared_ip: 
+# e.g. gitlab_shared_ip: 192.168.10.15
+
+###
+# Gitlab variables
+
+gitlab_version:  
+#e.g. gitlab_version: "17.11.3-ce.0"
+# Alternatively, leave blank or "" to pull the latest version
+# e.g. gitlab_version: ""
+# or gitlab_version:
+
+gitlab_url:  
+# e.g. gitlab_url: "https://gitlab.my-domain.me"
+
+# IPs to be ignored in proxy chain when recording client IP
+# Enter the IP of any intermediate proxies, including the external proxy
+gitlab_trusted_ips:  
+# e.g. gitlab_trusted_ips: "'192.168.18.136', '193.168.1.123'"
+
+# Address gitlab is listening for ssh connections. Is included in the 'clone address' output
+# Applicable to standard ssh and gitlab-sshd
+# Leave as default 22 if not sure
+gitlab_ssh_listen_address: 22 
+# e.g. gitlab_ssh_listen_address: 22
+
+# Name of the applicable gitlab.rb template expected to be found in templates/
+gitlab_config_template:  
+# e.g. gitlab_config_template: prod-gitlab.rb.j2
+
+# Name of the applicable gitlab-secrets.json file expected to be found in files/ 
+gitlab_secrets:  
+# e.g. gitlab_secrets: prod-gitlab-secrets.json
+# Note: for a new deployment only a name is required. The file itself will be generated automatically. 
+
+# Initial password for the root user
+# Recommended to use an ansible vault value
+gitlab_initial_root_pw:
+
+######################
+# Object store
+######################
+
+# Switch to enable object store integration
+# Default to false, in which case LFS etc. to be stored in the local filesystem
+# If using object store, please refer to the gitlab documentation for more info on filling in these value
+# https://docs.gitlab.com/administration/object_storage/
+object_store_enabled: "false"
+object_store_proxy_download_enabled: "false"
+#### S3 connection config
+object_store_connection_config: | 
+          gitlab_rails['object_store']['connection'] = {
+            'provider' => 'AWS',
+            'region' => 'US',
+            'aws_access_key_id' => '',
+            'aws_secret_access_key' => '',
+            'endpoint' => 'https://',
+            'path_style' => 'true',
+            'enable_signature_v4_streaming' => 'true'
+          }
+
+#### Bucket names
+# Note: In the gitlab object store 'consolidated form', all buckets must be set.
+bucket_artifacts: nil        # e.g. "'gitlab-artifacts'"
+bucket_mrdiffs: nil          # e.g. "'gitlab-mr-diffs'"
+bucket_lfs: nil              # e.g. "'gitlab-lfs'"
+bucket_uploads: nil          # e.g. "'gitlab-uploads'"
+bucket_packages: nil         # e.g. "'gitlab-packages'"
+bucket_dependency_proxy: nil # e.g. "'gitlab-dependency-proxy'"
+bucket_terraform_state: nil  # e.g. "'gitlab-terraform-state'"
+bucket_ci_secure: nil        # e.g. "'gitlab-ci-secure-files'"
+bucket_pages: nil            # e.g. "'gitlab-pages'"
+# Backups are not part of the consolidated form, this can be left unset if not using remote backups
+bucket_backups: nil          # e.g. "'gitlab-backups'"
+#######################
+
+######################
+# Backup
+#####################
+# List of categories to skip when running gitlab-backup via playbook gitlab_cluster_05_invoke_backup.yml
+# The example string will back up only the database
+# Set to "" to include all categories
+# See the gitlab backup docs for more info 
+# https://docs.gitlab.com/administration/backup_restore/backup_gitlab/
+backup_skip: "" 
+# e.g. backup_skip: "repositories,uploads,builds,artifacts,pages,lfs,terraform_state,registry,packages,ci_secure_files,external_diffs"
+
+# If the details here are filled in, this will add a task at the end of each backup, to send a copy to a remote store
+backup_upload_connection: "# gitlab_rails['backup_upload_connection'] = {" 
+#                          |
+#          gitlab_rails['backup_upload_connection'] = {
+#            'provider' => 'AWS',
+#            'aws_access_key_id' => '',
+#            'aws_secret_access_key' => '',
+#            'endpoint' => 'https://',
+#            'path_style' => 'true',
+#            'enable_signature_v4_streaming' => 'false'
+#          }
+#          gitlab_rails['backup_upload_remote_directory'] = {{ bucket_backups }} # e.g. "'gitlab-backups'" 
+
+#######################
+# Omniauth
+######################
+# Switch to enable omniauth integration
+# This will need to be set to true if using the associated keycloak instance
+omniauth_enabled: nil
+
+#### Keycloak variables
+# Address of the keycloak realm associated to the gitlab
+gitlab_keycloak_realm:  
+# e.g. gitlab_keycloak_realm: "https://keycloak.my-domain.de/realms/gitlab"
+
+# ID for the gitlab client
+gitlab_keycloak_id: 
+# e.g. gitlab_keycloak_id: "datahub"
+
+# Client secret
+# Recommended to use an ansible vault value
+gitlab_keycloak_secret:  
+#############################
+
+###################
+# Gitlab sshd
+##################
+# Switch to enable alternative gitlab-sshd server
+gitlab_sshd_enabled: "false"
+
+# Switch when using proxy protocol from intermediate proxies
+gitlab_sshd_proxy_protocol: "false"
+
+# Note, sshd port is set above as gitlab_ssh_listen_address
+######################
+

@@ -1,0 +1,1 @@
+ ## Ensure all private keys in this directory have the mode 600 (ssh keys) or 660 (vault key)

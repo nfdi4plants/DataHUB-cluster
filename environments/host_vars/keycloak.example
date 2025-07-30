@@ -1,0 +1,32 @@
+---
+# Address for the ansible host to connect to the keycloak host
+ansible_host:
+# e.g. ansible_host: 192.168.10.10
+
+# Name to give group that will access the /srv/keycloak directory for updates and backups. Uses by the ansible user and postgres
+keycloak_install_backup_group: 
+# e.g. keycloak_install_backup_group: keycloak_install_backup
+
+# keycloak version to install/upgrade to
+keycloak_version:
+# e.g. keycloak_version: 26.2.0
+# Alternatively, leave blank or "" to pull the latest version
+# e.g. keycloak_version: ""
+# or keycloak_version: 
+
+# Full hostname of the keycloak instance. If using a context path it is best to provide the full address.
+keycloak_hostname:
+# e.g. keycloak_hostname: "https://keycloak.my-service.net"
+# or keycloak_hostname: "https://my-service.net:443/keycloak"
+
+# Relative path if applicable, i.e. if you are hosting the service as something like my-service.org/keycloak
+keycloak_relative_path: "'/'" 
+# IMPORTANT: leave as "'/'" if no relative path
+
+# Credentials to create a temporary admin user on the first installation
+keycloak_initial_admin_name:
+keycloak_initial_admin_pw:
+
+# Password for the keycloak postgres db
+# Recommended to use an ansible vault encrypted value
+keycloak_postgres_pw: 
