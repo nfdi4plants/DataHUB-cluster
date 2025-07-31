@@ -1,7 +1,7 @@
 ---
 # Default user for all hosts.
 ansible_user: ubuntu
-# Leave as ubuntu if using ubuntu, othersiw substitue in appropriate default user
+# Leave as ubuntu if using ubuntu, otherwise substitute in appropriate default user
 
 # Default ssh private key when contacting hosts
 ansible_ssh_private_key_file:

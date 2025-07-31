@@ -153,7 +153,7 @@ Once the variables are entered, the deployment playbooks can be run.
 	```
 	ansible-playbook gitlab_cluster_05_00_invoke_backup.yml -i environments/ 
 	```
-	+ Note, this invokes the ```gitlab-backup``` application. If you are expecting to be hosting large data volumes, it is recommended to exclude this data from ```gitlab-backup```, such as the files in the ```LFS``` and ```uploads``` stores. If any further backup steps are desired it is recommended to include these as additional playbooks imported by the backup playbook above. For example, in the Tübingen DataHUB, ```LFS``` and ```uploads``` are exluded from ```gitlab-backup```, and the S3 object store is more efficiently replicated using an additional playbook imported by  ```gitlab_cluster_05_00_invoke_backup.yml```. Keeping the backup processes together makes it easier to set up [automatic backups](#automate-it). 
+	+ Note, this invokes the ```gitlab-backup``` application. If you are expecting to be hosting large data volumes, it is recommended to exclude this data from ```gitlab-backup```, such as the files in the ```LFS``` and ```uploads``` stores. If any further backup steps are desired it is recommended to include these as additional playbooks imported by the backup playbook above. For example, in the Tübingen DataHUB, ```LFS``` and ```uploads``` are excluded from ```gitlab-backup```, and the S3 object store is more efficiently replicated using an additional playbook imported by  ```gitlab_cluster_05_00_invoke_backup.yml```. Keeping the backup processes together makes it easier to set up [automatic backups](#automate-it). 
 
 
 #### Keycloak management
@@ -175,7 +175,7 @@ Included in the library is a playbook for managing systemd timers to run playboo
 
 - Run the systemd timer management playbook
 	```
-	ansible-playbook keycloak_03_upgrade_host.yml -i environments/
+	ansible-playbook playbook_services_timers.yml -i environments/
 	``` 
 + The current timers can be viewed with the ```list-timers``` command:
 	```
@@ -197,7 +197,7 @@ Included in the library is a playbook for managing systemd timers to run playboo
 
 The DataHUB cluster requires the following resources:
 - 1 host for the ansible controller
-- 1 host instance for the reverse proxy
+- 1 host for the reverse proxy
 - 3+ hosts for the gitlab cluster hosts
 - 1 internal network
 - A public IPv4 and/or IPv6 address(es).
