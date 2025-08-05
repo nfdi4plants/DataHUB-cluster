@@ -147,6 +147,7 @@
       register: var_opt_gitlab
 
     - name: Run first gitlab reconfigure
+      no_log: true
       ansible.builtin.shell:
         cmd: "gitlab-ctl reconfigure"
       when: var_opt_gitlab.stat.exists == False
@@ -390,11 +391,11 @@
       
       - name: Set cluster watchdog timeout
         ansible.builtin.shell:
-          cmd: pcs property set stonith-watchdog-timeout=10
+          cmd: pcs property set stonith-watchdog-timeout=30
       
       - name: Set cluster STONITH timeout
         ansible.builtin.shell:
-          cmd: pcs property set stonith-timeout=15 
+          cmd: pcs property set stonith-timeout=36
       
       become: true  
       run_once: true
