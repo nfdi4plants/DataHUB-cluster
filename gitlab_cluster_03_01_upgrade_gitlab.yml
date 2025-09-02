@@ -81,14 +81,15 @@
         selection: hold
     # Note, this is currently required as the allow_change_held_packages in apt module above does not re-apply the hold
 
-    - name: Wait 90s for background gitlab operations
+    - name: Wait 5 mins for background gitlab operations
       ansible.builtin.pause:
-        seconds: 90
+        seconds: 300
       when: update_gitlab is changed
 
     - name: Stop the gitlab application
       ansible.builtin.shell:
         cmd: gitlab-ctl stop
+      ignore_errors: true
 
     - name: Stop the gitlab runsvdir service on the current host
       ansible.builtin.systemd_service:
@@ -145,14 +146,15 @@
             selection: hold
           # Note, this is currently required as the allow_change_held_packages in apt module above does not re-apply the hold
         
-        - name: Wait 90s for background gitlab operations
+        - name: Wait 5 mins for background gitlab operations
           ansible.builtin.pause:
-            seconds: 90
+            seconds: 300
           when: update_gitlab is changed
         
         - name: Stop the gitlab application
           ansible.builtin.shell:
             cmd: gitlab-ctl stop
+          ignore_errors: true
 
         - name: Stop the gitlab runsvdir service on the current host
           ansible.builtin.systemd_service:
@@ -197,7 +199,4 @@
     - name: Remove location constraints
       ansible.builtin.shell:
         cmd: "pcs resource clear drbd-service-clone"
-
-
-
 
