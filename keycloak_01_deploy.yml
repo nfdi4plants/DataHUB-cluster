@@ -38,6 +38,27 @@
       loop:
         - "{{ ansible_user }}"
         - postgres
+    
+    - name: Create keycloak user
+      ansible.builtin.user:
+        name: keycloak
+        system: true
+        shell: /bin/bash
+        home: /opt/keycloak
+        state: present
+    
+    - name: Check for existing keycloak install
+      ansible.builtin.stat:
+        path: /opt/keycloak/bin/kc.sh
+      register: keycloak_app_file
+
+    - block:
+      - name: Report keycloak application files found
+        ansible.builtin.debug:
+          msg: "Keycloak already installed. To update an existing installation run keycloak_02_backup_upgrade.yml"
+        
+      - meta: end_host
+      when: keycloak_app_file.stat.exists == true
 
     - name: Get latest version tag if the version is not set in keycloak host_vars
       ansible.builtin.uri:
@@ -70,14 +91,6 @@
         src: "/srv/keycloak/keycloak-{{ keycloak_version }}/"
         remote_src: true
         dest: "/opt/keycloak/"
-
-    - name: Create keycloak user
-      ansible.builtin.user:
-        name: keycloak
-        system: true
-        shell: /bin/bash
-        home: /opt/keycloak
-        state: present
 
     - name: Give keycloak user ownership of /opt/keycloak
       ansible.builtin.file:
@@ -124,7 +137,7 @@
 ###########################################
 ###########################################
 
-    - name: Create a keycloak.conf file file for runtime configuration options
+    - name: Create a keycloak.conf file for runtime configuration options
       ansible.builtin.template:
         src: keycloak.conf.j2
         dest: /opt/keycloak/conf/keycloak.conf
@@ -166,17 +179,5 @@
 
     - name: Reboot the host, after which systemd will control keycloak
       ansible.builtin.reboot:
-
-
-
- 
-
-        
-
-
-
-
-
-
 
 
