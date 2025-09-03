@@ -8,3 +8,13 @@ ansible_ssh_private_key_file:
 # Key should be placed in the keys/ directory with mode 600
 # e.g. ansible_ssh_private_key_file: keys/ansible-controller-key
 
+# Dict of playbooks to be run as systemd units
+services_timers:
+# service-timer-name:
+#   playbook: playbook-to-be-run.yml
+#   calendar_entry: "systemd timer entry"
+#
+# e.g. A service to run a daily gitlab backup every day at 5 mins after midnight. 
+#  ansible-test-gitlab-daily-backup:
+#    playbook: gitlab_cluster_05_00_invoke_backup.yml
+#    calendar_entry: "*-*-* 00:05:00"

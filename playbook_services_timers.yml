@@ -4,59 +4,13 @@
   gather_facts: no
   run_once: true
   tasks: 
-    
-    - name: Daily gitlab backup
+    # Loops through services defined in group_vars/all.yml 
+    - name: Schedule a playbook systemd service and timer 
       vars:
-        service_playbook: gitlab_cluster_05_00_invoke_backup.yml 
-        service_name: ansible-test-gitlab-daily-backup
-        systemd_calendar_entry: "*-*-* 00:05:00"
-      ansible.builtin.import_role:
+        service_playbook: "{{ item.value.playbook }}"
+        service_name: "{{ item.key }}"
+        systemd_calendar_entry: "{{ item.value.calendar_entry }}"
+      ansible.builtin.include_role:
         name: playbook_service_timer
+      loop: "{{ services_timers | dict2items }}"
 
-    - name: Upgrade gitlab on cluster
-      vars:
-        service_playbook: gitlab_cluster_03_00_master_upgrade_gitlab.yml
-        service_name: ansible-test-gitlab-version-upgrade
-        systemd_calendar_entry: "Tue *-*-01..07 02:05:05"
-      ansible.builtin.import_role:
-        name: playbook_service_timer
-
-    - name: Upgrade gitlab cluster hosts (excl. gitlab-ce)
-      vars:
-        service_playbook: gitlab_cluster_04_upgrade_host.yml
-        service_name: ansible-test-cluster-host-upgrade
-        systemd_calendar_entry: "Tue *-*-08..14 02:05:05"
-      ansible.builtin.import_role:
-        name: playbook_service_timer
-
-    - name: Upgrade external proxy host
-      vars:
-        service_playbook: haproxy_03_upgrade_host.yml
-        service_name: ansible-test-haproxy-host-upgrade
-        systemd_calendar_entry: "Tue *-*-15..21 02:05:05"
-      ansible.builtin.import_role:
-        name: playbook_service_timer
-
-    - name: Upgrade keycloak host
-      vars:
-        service_playbook: keycloak_03_upgrade_host.yml
-        service_name: ansible-test-keycloak-host-upgrade
-        systemd_calendar_entry: "Tue *-*-15..21 02:05:55"
-      ansible.builtin.import_role:
-        name: playbook_service_timer
-
-    - name: Backup and upgrade keycloak
-      vars:
-        service_playbook: keycloak_02_backup_upgrade.yml
-        service_name: ansible-test-keycloak-backup-upgrade
-        systemd_calendar_entry: "Tue *-*-22..28 02:05:05"
-      ansible.builtin.import_role:
-        name: playbook_service_timer
-#
-#    - name: 
-#      vars:
-#        service_playbook: 
-#        service_name: 
-#        systemd_calendar_entry: 
-#      ansible.builtin.import_role:
-#        name: playbook_service_timer 

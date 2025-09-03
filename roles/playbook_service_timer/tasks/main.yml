@@ -18,12 +18,14 @@
   become: true
   local_action:
     module: ansible.builtin.file
-    src: "{{ playbook_dir }}/services_timers/{{ service_name }}.{{ item }}"
-    path: "/etc/systemd/system/{{ service_name }}.{{ item }}"
+    src: "{{ playbook_dir }}/services_timers/{{ service_name }}.{{ scheduler_item }}"
+    path: "/etc/systemd/system/{{ service_name }}.{{ scheduler_item }}"
     state: link
   loop:
     - service
     - timer
+  loop_control:
+    loop_var: scheduler_item
 
 - name: Activate timer
   become: true
