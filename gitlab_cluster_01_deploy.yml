@@ -24,7 +24,7 @@
       local_action: 
         module: community.crypto.openssh_keypair
         path: "keys/{{ hostvars[inventory_hostname].group_names[0] }}"
-        comment: "shared cluster key"
+        comment: "gitlab-cluster"
         type: ed25519
         state: present
       run_once: true
@@ -118,7 +118,7 @@
         cmd: "bash /home/{{ ansible_user }}/script.deb.sh"
       when: gitlab_repo_download is changed
 
-     - name: Query the repo for gitlab-ce
+    - name: Query the repo for gitlab-ce
       ansible.builtin.shell:
         cmd: apt-cache show gitlab-ce --no-all-versions | grep Version
       register: candidate_gitlab
@@ -347,17 +347,10 @@
         state: present
       register: watchdog_mod
 
-    - name: Ensure SBD config directory exists
-      ansible.builtin.file:
-        path: /etc/sysconfig
-        owner: root
-        mode: "755"
-        state: directory
-
     - name: Place SBD config file
       ansible.builtin.copy:
         src: sbd.config
-        dest: /etc/sysconfig/sbd
+        dest: /etc/default/sbd
         owner: root
         mode: "640"
       register: sbd_conf
@@ -391,11 +384,11 @@
       
       - name: Set cluster watchdog timeout
         ansible.builtin.shell:
-          cmd: pcs property set stonith-watchdog-timeout=30
+          cmd: pcs property set stonith-watchdog-timeout=20
       
       - name: Set cluster STONITH timeout
         ansible.builtin.shell:
-          cmd: pcs property set stonith-timeout=36
+          cmd: pcs property set stonith-timeout=24
       
       become: true  
       run_once: true
