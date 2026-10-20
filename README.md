@@ -10,7 +10,7 @@ For post-deployment management, there are tasks to carry out upgrades of the hos
 
 After a DataHUB cluster has been deployed, it is sometimes necessary to rebuild and re-integrate a cluster host. There is a short guide to re-installing gitlab on a host in an existing DataHUB cluster, as well as a playbook to rebuild and re-integrate a host. 
 
-Note: This library was developed to support the DataPLANT DataHUB research data repository. As such, the [main Gitlab configuration file](roles\gitlab-cluster-host\templates\gitlab.rb.j2.example) and some [ruby configuration files](roles\gitlab-cluster-host\tasks\apply_gitlab_patches.yml) are modified to facilitate the transfer of large files to and from the DataHUB cluster.
+Note: This library was developed to support the DataPLANT DataHUB research data repository. As such, the [main Gitlab configuration file](roles/gitlab-cluster-host/templates/gitlab.rb.j2) and some [ruby configuration files](roles/gitlab-cluster-host/tasks/apply_gitlab_patches.yml) are modified to facilitate the transfer of large files to and from the DataHUB cluster.
 
 ### Structure of the library and how to interact
 
