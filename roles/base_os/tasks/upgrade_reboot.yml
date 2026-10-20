@@ -1,0 +1,45 @@
+---
+- block:
+  - name: Update package cache and packages using apt
+    ansible.builtin.apt:
+      update_cache: true
+      upgrade: safe
+    when: ansible_facts['pkg_mgr'] == "apt"
+
+  - name: Update packages using dnf
+    ansible.builtin.dnf:
+      name: '*'
+      update_only: true
+      state: latest
+      update_cache: true
+      use_backend: "dnf"
+    when: (ansible_facts['pkg_mgr'] is match("dnf*")) or (ansible_facts['pkg_mgr'] is match("yum*"))
+
+  - name: Update package cache and packages using zypper
+    ansible.builtin.zypper:
+      name: "*"
+      state: latest
+      update_cache: true
+    when: ansible_facts['pkg_mgr'] == "zypper"
+
+  # Checks for the apt flag set when updates request a system reboot
+  # Stores the output as a registered variable reboot_check
+  - name: Check for reboot flag after updates
+    ansible.builtin.stat:
+      path: /var/run/reboot-required
+    register: reboot_check
+
+  # If the flag was found, initiate a reboot
+  - name: Reboot if the flag is found
+    ansible.builtin.reboot:
+    when: reboot_check.stat.exists
+
+  # Finally, clean up the apt package cache
+  - name: Clean apt cache
+    ansible.builtin.apt:
+      autoclean: true
+      autoremove: true
+      clean: true
+    when: ansible_facts['pkg_mgr'] == "apt"
+
+  become: true

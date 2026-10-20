@@ -1,0 +1,85 @@
+---
+- block:
+
+  - name: Withdraw host from cluster
+    ansible.builtin.shell:
+      cmd: "pcs cluster stop {{ inventory_hostname }}"
+        
+  - name: Copy gitlab-secrets.json to temporary name
+    ansible.builtin.copy:
+      remote_src: true
+      src: /etc/gitlab/gitlab-secrets.json
+      dest: /etc/gitlab/gitlab-secrets.json.cluster
+      mode: '600'
+        
+  - name: Place original gitlab-secrets.json in place for upgrade/reconfigure
+    ansible.builtin.copy:
+      remote_src: true
+      src: /etc/gitlab/gitlab-secrets.json.orig
+      dest: /etc/gitlab/gitlab-secrets.json
+      mode: '600'
+        
+  - name: Start the gitlab runsvdir service on the current host
+    ansible.builtin.systemd_service:
+      name: gitlab-runsvdir.service
+      state: started
+
+  - name: Update package cache and upgrade gitlab
+    ansible.builtin.apt:
+      name: "gitlab-ce={{ gitlab_version }}"
+      state: present
+      update_cache: true
+      allow_change_held_packages: true
+    register: update_gitlab
+        
+  - name: Ensure package hold is re-applied for gitlab-ce
+    ansible.builtin.dpkg_selections:
+      name: gitlab-ce
+      selection: hold
+  # Note, this is currently required as the allow_change_held_packages in apt module above does not re-apply the hold
+        
+  - name: Wait 5 mins for background gitlab operations
+    ansible.builtin.pause:
+      seconds: 300
+        
+  - name: Stop the gitlab runsvdir service on the current host
+    ansible.builtin.systemd_service:
+      name: gitlab-runsvdir.service
+      state: stopped
+        
+  - name: Copy gitlab-secrets.json to orig
+    ansible.builtin.copy:
+      remote_src: true
+      src: /etc/gitlab/gitlab-secrets.json
+      dest: /etc/gitlab/gitlab-secrets.json.orig
+      mode: '600'
+        
+  - name: Copy gitlab-secrets.json.cluster back to active copy
+    ansible.builtin.copy:
+      remote_src: true
+      src: /etc/gitlab/gitlab-secrets.json.cluster
+      dest: /etc/gitlab/gitlab-secrets.json
+      mode: '600'
+
+  - name: Remove the temporary cluster copy of gitlab-secrets.json
+    ansible.builtin.file:
+      path: /etc/gitlab/gitlab-secrets.json.cluster
+      state: absent
+        
+  - name: Clean apt cache
+    ansible.builtin.apt:
+      autoclean: true
+      autoremove: true
+      clean: true
+        
+  - name: Rejoin host to cluster
+    ansible.builtin.shell:
+      cmd: "pcs cluster start {{ inventory_hostname }} --request-timeout 90"
+
+  - name: Pause to allow host to rejoin cluster
+    ansible.builtin.pause:
+      seconds: 15
+
+  become: true
+
+

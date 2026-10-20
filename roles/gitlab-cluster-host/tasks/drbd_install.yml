@@ -1,0 +1,22 @@
+---
+- block:
+    
+    - name: Add linbit ppa
+      ansible.builtin.deb822_repository: 
+        name: linbit-drbd9-stack
+        uris: "https://ppa.launchpadcontent.net/linbit/linbit-drbd9-stack/ubuntu"
+        signed_by: "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x34893610ceaa9512"
+        suites: noble
+        components: main
+        state: present
+    
+    - name: Install drbd, pacemaker and fencing packages
+      ansible.builtin.apt:
+        name: 
+          - drbd-utils
+          - drbd-dkms
+          - rsync
+        state: present
+        update_cache: true
+
+  become: true

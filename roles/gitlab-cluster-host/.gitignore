@@ -1,0 +1,2 @@
+files/*-secrets.json
+templates/*-gitlab.rb.j2

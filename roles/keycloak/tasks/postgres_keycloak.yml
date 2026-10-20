@@ -1,0 +1,24 @@
+---
+- block:
+  
+  - name: Create keycloak postgresql user
+    ansible.builtin.shell:
+      cmd: su -c 'createuser keycloak' postgres
+    register: postgres_kc_create
+    failed_when: 
+      - postgres_kc_create.rc != 0
+      - '"already exists" not in postgres_kc_create.stderr' 
+
+  - name: Update keycloak db user password
+    ansible.builtin.shell:
+      cmd: su -c "psql -c \"ALTER ROLE keycloak PASSWORD '{{ keycloak_postgres_pw }}' ;\"" postgres
+    when: postgres_kc_create.rc == 0
+    no_log: true
+       
+  - name: Create keycloak postgres db
+    ansible.builtin.shell:
+      cmd: su -c 'createdb --owner keycloak keycloak' postgres
+    when: postgres_kc_create.rc == 0
+
+  become: true
+

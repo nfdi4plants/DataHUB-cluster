@@ -1,0 +1,13 @@
+---
+- name: Check to ensure that there are >=3 hosts to deploy the cluster
+  ansible.builtin.set_fact:
+    enough_hosts: "{{ ansible_play_hosts | length >= 3 }}"
+
+- block:
+    - name: Report not enough hosts
+      ansible.builtin.debug:
+        msg: "The host set given is less than the minimum number of cluster hosts (3)"
+
+    - meta: end_play
+  
+  when: enough_hosts is false

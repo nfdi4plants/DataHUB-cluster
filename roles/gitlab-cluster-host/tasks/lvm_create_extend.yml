@@ -1,0 +1,20 @@
+---
+# This will add and resize any the vg for any new devices listed in pvs
+# It will not remove volumes
+- block:
+
+  - name: Create or expand the volume group
+    community.general.lvg:
+      pvs: "{{ volumes_drbd }}"
+      vg: "vg_{{ vg_drbd }}"
+      state: present
+      remove_extra_pvs: false
+
+  - name: Create or expand an lv
+    community.general.lvol:
+      lv: "lv_{{ lv_drbd }}"
+      vg: "vg_{{ vg_drbd }}"
+      size: "+100%FREE"
+      state: present
+  
+  become: true

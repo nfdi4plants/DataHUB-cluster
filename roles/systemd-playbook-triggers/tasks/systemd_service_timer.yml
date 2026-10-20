@@ -1,0 +1,29 @@
+---
+- block:
+
+  - name: Create/update service from template
+    local_action: ansible.builtin.template
+    args:
+      src: run_ansible_playbook.service.j2
+      dest: "/etc/systemd/system/{{ service_name }}.service"
+      mode: '660'
+    register: service_update
+
+  - name: Create/update service timer from template
+    local_action: ansible.builtin.template
+    args:
+      src: run_ansible_playbook.timer.j2
+      dest: "/etc/systemd/system/{{ service_name }}.timer"
+      mode: '660'
+    register: timer_update
+
+  - name: Activate timer
+    local_action: ansible.builtin.systemd_service
+    args:    
+      name: "{{ service_name }}.timer"
+      enabled: true
+      daemon_reload: true
+      state: restarted
+    when: timer_update is changed or service_update is changed
+
+  become: true

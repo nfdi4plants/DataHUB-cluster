@@ -1,0 +1,26 @@
+---
+- block:
+
+  - name: Authorise to all cluster hosts
+    ansible.builtin.shell:
+      cmd: "pcs host auth {{ ansible_play_hosts|list|regex_replace(regex, '') }} -u hacluster -p clusterhost"
+
+  - name: Build a string of [host ip] blocks for the cluster initialisation command
+    ansible.builtin.set_fact:
+      host_ip_list: "{{ host_ip_list ~ item ~ ' addr=' ~ hostvars[item]['ansible_host'] ~ ' '}}"
+    loop: "{{ ansible_play_hosts }}"
+
+  - name: Initialise the cluster
+    ansible.builtin.shell:
+      cmd: "pcs cluster setup dataHUB-cluster {{host_ip_list}}--force"
+
+  - name: Start the cluster
+    ansible.builtin.shell:
+      cmd: "pcs cluster start --all"
+
+  - name: Disable STONITH while we set up SBD
+    ansible.builtin.shell:
+      cmd: "pcs property set stonith-enabled=false"
+
+  become: true
+

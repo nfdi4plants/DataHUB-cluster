@@ -1,9 +1,0 @@
----
-##### This playbook is for an upgrade of the haproxy host(s)
-#####
-
-- name: Update/upgrade host
-  hosts: proxies
-  roles:
-    - apt_upgrade_reboot
-

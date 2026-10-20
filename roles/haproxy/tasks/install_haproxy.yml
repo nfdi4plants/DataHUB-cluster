@@ -1,0 +1,32 @@
+---
+- name: Install haproxy and associated helper applications
+  block:
+  - name: Install haproxy and rsync with apt
+    ansible.builtin.apt:
+      name:
+       - haproxy
+       - rsync
+      state: present
+      update_cache: true 
+    when: ansible_facts['pkg_mgr'] == "apt"
+
+  - name: Install haproxy and rsync with dnf
+    ansible.builtin.dnf:
+      name:
+       - haproxy
+       - rsync
+      state: present
+      update_cache: true
+      use_backend: "dnf" 
+    when: (ansible_facts['pkg_mgr'] is match("dnf*")) or (ansible_facts['pkg_mgr'] is match("yum*"))
+  
+  - name: Install haproxy and rsync with zypper
+    ansible.builtin.zypper:
+      name:
+       - haproxy
+       - rsync
+      state: present
+      update_cache: true 
+    when: ansible_facts['pkg_mgr'] == "zypper"
+  
+  become: true

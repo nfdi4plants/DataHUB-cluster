@@ -1,0 +1,29 @@
+---
+- block:
+
+  - name: Install drbd, pacemaker and fencing packages
+    ansible.builtin.apt:
+      name: 
+        - pacemaker
+        - pcs
+        - resource-agents-base
+        - resource-agents-common
+        - resource-agents-extra
+        - sbd 
+        - watchdog
+      state: present
+      update_cache: true
+
+  - name: Start and enable the pcs daemon
+    ansible.builtin.systemd_service:
+      name: pcsd.service
+      state: started
+      enabled: true
+
+  - name: Set the hacluster user password
+    ansible.builtin.user:
+      name: hacluster
+      password: "{{ 'clusterhost' | password_hash('sha512') }}"
+      state: present
+  
+  become: true

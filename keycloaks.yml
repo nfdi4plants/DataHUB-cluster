@@ -1,0 +1,7 @@
+---
+- name: Master playbook for keycloak hosts
+  hosts: keycloaks
+  roles:
+    - base_os
+    - keycloak
+

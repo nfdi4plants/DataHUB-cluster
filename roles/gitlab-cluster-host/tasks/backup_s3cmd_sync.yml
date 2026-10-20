@@ -1,0 +1,20 @@
+---
+- name: Sync between an S3 object store and local
+  become: true
+ # no_log: true
+  local_action: ansible.builtin.command
+  args:
+    argv:
+      - s3cmd
+      - sync
+      - --delete-removed
+      - --skip-existing
+      - --no-check-md5
+      - --host={{ endpoint }}
+      - --host-bucket=%(bucket).{{ endpoint }}
+      - --access_key={{ access_key }}
+      - --secret_key={{ secret_key }}
+      - --cache-file={{ cache_location }}
+      - "{{ source_location }}"
+      - "{{ destination_location }}"
+

@@ -1,0 +1,6 @@
+---
+- name: Send cluster start command
+  become: true
+  ansible.builtin.shell:
+    cmd: "pcs cluster start --all --request-timeout=90"
+

@@ -1,0 +1,36 @@
+---
+- name: Update package cache
+  become: true
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Query the repo for gitlab-ce
+  ansible.builtin.shell:
+    cmd: apt-cache show gitlab-ce --no-all-versions | grep Version
+  register: candidate_gitlab
+  when: gitlab_version == None or gitlab_version|length == 0
+
+- name: Set gitlab_version var to latest release
+  ansible.builtin.set_fact:
+    gitlab_version: "{{ (candidate_gitlab.stdout | split )[1] }}"
+  when: candidate_gitlab is not skipped
+    
+- name: Get the current gitlab version on host
+  ansible.builtin.shell:
+    cmd: cat /opt/gitlab/version-manifest.txt | grep gitlab-ce
+  register: gitlab_version_host
+
+- name: Get a stripped version of gitlab_version for comparison to host
+  ansible.builtin.set_fact:
+    gitlab_version_stripped: "{{ gitlab_version | regex_replace('^([\\.\\d]+)-(.+)', '\\1') }}"
+
+- block:
+
+  - name: Report host and group_var gitlab version are the same
+    ansible.builtin.debug:
+      msg: "Host {{ inventory_hostname }} gitlab is already {{ gitlab_version }}"
+
+  - meta: end_play
+
+  when: gitlab_version_stripped in gitlab_version_host.stdout
+

@@ -1,0 +1,62 @@
+---
+- name: Run sources update
+  ansible.builtin.import_tasks: 
+    file: update_sources.yml
+  tags:
+    - update_sources
+    - base_os
+    - deploy
+    - never
+
+###################
+
+- name: Run cache update and package upgrade
+  ansible.builtin.import_tasks: 
+    file: upgrade_reboot.yml
+  tags:
+    - update_os
+    - base_os
+    - deploy
+    - never
+
+###################
+
+- name: Sync hostnames
+  ansible.builtin.import_tasks:
+    file: hostnames.yml
+  tags:
+    - hostnames
+    - base_os
+    - deploy
+    - never
+
+
+###################
+# Optional: not included in deploy tag
+###################
+
+- name: Re-mount /proc with PIDs hidden to non-root users
+  ansible.builtin.import_tasks:
+    file: remount_proc_hide_pids.yml
+  tags:
+    - proc-hide-pid
+    - never
+
+###################
+
+- name: Stop apt.daily services, unattended-upgrades
+  ansible.builtin.import_tasks:
+    file: stop_apt_daily.yml
+  tags:
+    - stop-apt-daily
+    - never
+
+###################
+
+- name: Create zram device using systemd-zram-generator
+  ansible.builtin.import_tasks:
+    file: zram_swappiness.yml
+  tags:
+    - create-update-zram
+    - never
+

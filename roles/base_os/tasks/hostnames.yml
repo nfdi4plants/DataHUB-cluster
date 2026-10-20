@@ -1,0 +1,18 @@
+---
+- block:
+
+  - name: Write hostnames and IPs to /etc/hosts
+    ansible.builtin.lineinfile:
+      path: /etc/hosts
+      search_string: "{{ item }}"
+      line: "{{ hostvars[item]['ansible_host'] }} {{ item }}"
+      state: present
+      owner: root
+      mode: '644'
+    loop: "{{ groups['all'] }}"
+
+  - name: Update remote hostname
+    ansible.builtin.hostname:
+      name: "{{ inventory_hostname }}"
+
+  become: true

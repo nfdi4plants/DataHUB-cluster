@@ -1,0 +1,8 @@
+[Unit]
+Description="Run a playbook from {{ playbook_dir | basename }}"
+
+[Service]
+Type=oneshot
+ExecStart={{ ansible_playbook_python | dirname }}/ansible-playbook {{ playbook_dir }}/{{ service_playbook }} -i {{ inventory_dir }} {{ '--tags ' ~ playbook_tags if playbook_tags is defined else '' }} {{ '--limit ' ~ host_subset if host_subset is defined else '' }}
+
+WorkingDirectory={{ playbook_dir }}

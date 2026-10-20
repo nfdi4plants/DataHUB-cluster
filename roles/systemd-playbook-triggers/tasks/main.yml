@@ -1,0 +1,17 @@
+---
+- name: Schedule a playbook with systemd timer
+  vars:
+    service_name: "{{ item.key }}"
+    service_playbook: "{{ item.value.playbook }}"
+    playbook_tags: "{{ item.value.tags }}"
+    host_subset: "{{ item.value.hosts }}"
+    systemd_calendar_entry: "{{ item.value.calendar_entry }}"
+  ansible.builtin.include_tasks:
+    file: systemd_service_timer.yml
+    apply: 
+      tags:
+        - always
+  loop: "{{ services_timers | dict2items }}"
+  tags:
+    - systemd-playbook-triggers
+    - never

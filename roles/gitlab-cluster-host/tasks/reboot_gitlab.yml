@@ -1,0 +1,6 @@
+---
+- name: Reboot gitlab via gitlab-ctl
+  become: true
+  ansible.builtin.shell:
+    cmd: "gitlab-ctl restart"
+

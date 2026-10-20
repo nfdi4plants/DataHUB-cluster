@@ -1,0 +1,86 @@
+---
+  ##############
+  # Config 
+  ##############
+
+# If the haproxy.cfg file is present
+# Copy the updated file to the host
+- name: Copy haproxy.cfg to the proxy host
+  ansible.builtin.copy:
+    src: "{{ haproxy_config_file }}"
+    dest: /home/{{ ansible_user }}/haproxy.cfg
+  register: config_copy
+  when: haproxy_config_file is defined
+
+- block:
+  
+  ##############
+  # Certs
+  ##############
+  
+  - block:
+    - name: Check/create the haproxy certs directory
+      ansible.builtin.file:
+        path: /etc/haproxy/certs
+        state: directory
+        owner: root
+        mode: '0700'
+
+    - name: Synchronize the /certs directories
+      ansible.posix.synchronize:
+        src: "{{ haproxy_certs_dir }}"
+        dest: /etc/haproxy/certs
+        rsync_opts: -op --chown root:root --chmod 600
+        recursive: true
+        delete: true
+      register: certs_copy
+    
+    when: haproxy_certs_dir is defined
+    
+  ##############
+  # Blocklist
+  ##############
+
+  # Copy the agent blocklist if applicable
+  - name: Copy agent.blocklist if it exists
+    ansible.builtin.copy:
+      src: "{{ haproxy_agent_blocklist }}"
+      dest: /etc/haproxy/agent.blocklist
+      owner: root
+      mode: '600'
+    register: blocklist_file
+    when: haproxy_agent_blocklist is defined
+
+  ##############
+  # Config continued
+  ##############
+
+  - block:
+    
+    # Check the haproxy.cfg file using the haproxy on the proxy host
+    # Halts the program if error detected
+    - name: Check the config file with haproxy
+      ansible.builtin.command:
+        cmd: |
+          haproxy -f /home/{{ ansible_user }}/haproxy.cfg -c
+      when: config_copy is changed or certs_copy is changed
+
+    - name: Copy the haproxy.cfg file to /etc/haproxy/
+      ansible.builtin.copy:
+        remote_src: true
+        src: /home/{{ ansible_user }}/haproxy.cfg
+        dest: /etc/haproxy/haproxy.cfg
+        owner: root
+        mode: '600'
+      when: config_copy is changed
+    
+    when: haproxy_config_file is defined 
+  
+  - name: Reload haproxy
+    ansible.builtin.service:
+      name: haproxy
+      state: reloaded
+    when: config_copy is changed or certs_copy is changed or blocklist_file is changed
+  
+  become: true 
+

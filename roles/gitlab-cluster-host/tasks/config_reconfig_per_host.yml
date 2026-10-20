@@ -1,0 +1,40 @@
+---
+- block:
+  
+  - name: Stop the g-gitlab grouped cluster agents
+    community.general.pacemaker_resource:
+      name: g-gitlab
+      state: disabled
+
+  - name: Become primary cluster node
+    ansible.builtin.shell:
+      cmd: "pcs resource move-with-constraint fs-gitlab {{ inventory_hostname }}"
+    register: become_primary
+    failed_when: 
+      - become_primary.rc > 0
+      - '"Requested item already exists" not in become_primary.stderr'
+
+  - name: Wait for the filesystem to be mounted
+    ansible.builtin.wait_for:
+      delay: 10
+      path: /proc/mounts
+      search_regex: /var/opt/gitlab       
+      state: present 
+      timeout: 120
+
+  - name: Start the gitlab runsvdir service on the current host
+    ansible.builtin.systemd_service:
+      name: gitlab-runsvdir.service
+      state: started
+      
+  - name: Initiate reconfigure
+    ansible.builtin.shell:
+      cmd: gitlab-ctl reconfigure
+
+  - name: Stop the gitlab runsvdir service on the current host
+    ansible.builtin.systemd_service:
+      name: gitlab-runsvdir.service
+      state: stopped
+
+  become: true
+

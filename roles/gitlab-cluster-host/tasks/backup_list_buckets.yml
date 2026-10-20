@@ -1,0 +1,15 @@
+---
+- name: Create a formatted list of buckets to pass to s3cmd sync
+  ansible.builtin.set_fact:
+    buckets:
+      - "{{ bucket_artifacts | replace (\"'\", '') }}"
+      - "{{ bucket_mrdiffs | replace (\"'\", '') }}"
+      - "{{ bucket_lfs | replace (\"'\", '') }}"
+      - "{{ bucket_uploads | replace (\"'\", '') }}"
+      - "{{ bucket_packages | replace (\"'\", '') }}"
+      - "{{ bucket_dependency_proxy | replace (\"'\", '') }}"
+      - "{{ bucket_terraform_state | replace (\"'\", '') }}"
+      - "{{ bucket_ci_secure | replace (\"'\", '') }}"
+      - "{{ bucket_pages | replace (\"'\", '') }}"
+      - "{{ bucket_backups | replace (\"'\", '') }}"
+

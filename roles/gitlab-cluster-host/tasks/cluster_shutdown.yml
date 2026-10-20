@@ -1,0 +1,6 @@
+---
+- name: Send cluster shutdown command
+  become: true
+  ansible.builtin.shell:
+    cmd: "pcs cluster stop --all"
+

@@ -1,0 +1,5 @@
+---
+# default agent blocklist included in the role
+# replace with alternative location specified in host_vars if desired
+# or comment out to ignore blocklist sync
+haproxy_agent_blocklist: haproxy_agent.blocklist

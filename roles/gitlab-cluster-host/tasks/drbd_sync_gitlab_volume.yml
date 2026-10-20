@@ -1,0 +1,43 @@
+---
+- block:
+      
+  - name: Clear the sync cache
+    ansible.builtin.shell:
+      cmd: drbdadm --clear-bitmap new-current-uuid drbd-gitlab-service/0
+        
+  - name: Set this host as primary
+    ansible.builtin.shell:
+      cmd: drbdadm primary drbd-gitlab-service
+
+  - name: Initialise the drbd volume filesystem to xfs
+    community.general.filesystem:
+      dev: /dev/drbd0
+      fstype: xfs 
+      state: present
+      
+  - name: Create a mount directory
+    ansible.builtin.file:
+      path: /mnt/gitlab/
+      state: directory
+
+  - name: Mount the drbd volume
+    ansible.posix.mount:
+      path: /mnt/gitlab
+      src: /dev/drbd0
+      fstype: xfs
+      state: ephemeral
+    
+  - name: Stop the gitlab application
+    ansible.builtin.shell:
+      cmd: gitlab-ctl stop 
+    ignore_errors: true
+
+  - name: rsync the gitlab /var/opt directory to the drbd volume
+    ansible.posix.synchronize:
+      archive: true
+      src: /var/opt/gitlab/
+      dest: /mnt/gitlab/
+    delegate_to: "{{ inventory_hostname }}"
+
+  become: true
+

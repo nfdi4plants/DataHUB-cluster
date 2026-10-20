@@ -1,0 +1,16 @@
+---
+- block:
+
+  - name: Update fstab entry for /proc
+    ansible.builtin.lineinfile:
+      path: /etc/fstab
+      search_string: "none /proc"
+      line: "none /proc proc hidepid=2 0 0"
+    register: fstab_proc_entry
+
+  - name: Reboot if fstab updated
+    ansible.builtin.reboot:
+    when: fstab_proc_entry is changed
+
+  become: true
+

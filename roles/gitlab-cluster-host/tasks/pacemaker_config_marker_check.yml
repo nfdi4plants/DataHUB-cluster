@@ -1,0 +1,12 @@
+---
+# This indicates if the cluster has previously been configured
+- name: Check for pcsd known_hosts file
+  become: true
+  ansible.builtin.stat:
+    path: /var/lib/pcsd/known-hosts
+  register: pcsd_hosts
+
+- name: Set flag for pcsd config
+  ansible.builtin.set_fact:
+    pcsd_configured: "{{ pcsd_hosts.stat.exists }}"
+

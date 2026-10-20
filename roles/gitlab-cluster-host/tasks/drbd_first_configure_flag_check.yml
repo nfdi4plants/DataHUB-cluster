@@ -1,0 +1,10 @@
+---
+- name: Check for /etc/drbd-first-configure flag
+  ansible.builtin.stat:
+    path: /etc/drbd-first-configure
+  register: drbd_first_configure
+
+- name: Set ansible fact for existence of first configure
+  ansible.builtin.set_fact:
+    drbd_first_configure_exists: "{{ drbd_first_configure.stat.exists }}"
+

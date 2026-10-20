@@ -1,0 +1,48 @@
+---
+- block:
+
+  - name: Create a keycloak.conf file for runtime configuration options
+    ansible.builtin.template:
+      src: keycloak.conf.j2
+      dest: /opt/keycloak/conf/keycloak.conf
+      owner: keycloak
+      group: keycloak
+      mode: '640'
+   
+  - name: Run a pre-build for the keycloak application
+    ansible.builtin.shell:
+      chdir: /opt/keycloak/
+      cmd: su -c "bin/kc.sh build --db=postgres --http-relative-path={{ keycloak_relative_path }} --health-enabled=true" keycloak
+        
+  - name: Run keycloak to establish the initial admin user
+    ansible.builtin.shell:  
+      chdir: /opt/keycloak
+      cmd: su -c "bin/kc.sh start --optimized --bootstrap-admin-password={{ keycloak_initial_admin_pw }} --bootstrap-admin-username={{ keycloak_initial_admin_name }}" keycloak &
+    no_log: true
+
+  - name: Create a systemd service for keycloak
+    ansible.builtin.copy:
+      src: keycloak.service
+      dest: /etc/systemd/system/keycloak.service
+      owner: root
+      group: root
+      mode: '644'
+ 
+  - name: Enable keycloak service
+    ansible.builtin.systemd_service:
+      name: keycloak.service
+      enabled: true
+
+  - name: Wait for keycloak to be up
+    ansible.builtin.shell:
+      cmd: "curl --head -fsS http://localhost:9000{{ keycloak_relative_path }}/health/ready"
+    register: keycloak_ready_check
+    until: keycloak_ready_check.rc == 0
+    retries: 10
+    delay: 10
+
+  - name: Reboot the host, after which systemd will control keycloak
+    ansible.builtin.reboot:
+
+  become: true
+

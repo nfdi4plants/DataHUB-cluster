@@ -1,0 +1,7 @@
+---
+- name: Master playbook for proxy hosts
+  hosts: all
+  gather_facts: no
+  run_once: true
+  roles:
+    - systemd-playbook-triggers

@@ -1,0 +1,21 @@
+---
+- name: Create local repository sync directory
+  become: true
+  local_action: ansible.builtin.file
+  args:
+    path: "{{ mount_for_backup_sync }}/{{ repository_backup_name }}"
+    owner: "{{ lookup('env', 'USER') }}"
+    state: directory
+
+- name: Pull repository data from the primary gitlab cluster host
+  become: true
+  ansible.posix.synchronize:
+    mode: pull
+    src: /var/opt/gitlab/git-data/repositories
+    dest: "{{ mount_for_backup_sync }}/{{ repository_backup_name }}/"
+    archive: false
+    delete: true
+    rsync_opts:
+      - "-rlpt"
+      - "--omit-dir-times"
+

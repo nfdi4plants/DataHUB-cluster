@@ -1,0 +1,487 @@
+---
+#######################################
+# Deploy
+#######################################
+
+- name: Check number of hosts is >=3
+  ansible.builtin.import_tasks:
+    file: cluster_host_number_check.yml
+  tags:
+    - cluster-host-number-check
+    - deploy
+    - gitlab-cluster-host
+    - never
+
+######################
+
+- name: Install gitlab, reconfigure and stop gitlab service
+  ansible.builtin.import_tasks:
+    file: install_gitlab.yml
+  tags:
+    - install-gitlab
+    - deploy
+    - gitlab-cluster-host
+    - never
+
+######################
+
+- name: Install and configure drbd
+  ansible.builtin.import_tasks:
+    file: drbd_install.yml
+  tags:
+    - drbd-install
+    - deploy
+    - gitlab-cluster-host
+    - never
+
+- name: Create lvm
+  ansible.builtin.import_tasks:
+    file: lvm_create_extend.yml
+  tags:
+    - lvm-create-extend
+    - deploy
+    - gitlab-cluster-host
+    - never 
+
+######################
+
+- block:
+
+  - name: Check hosts for drbd-first-configure flag
+    ansible.builtin.import_tasks:
+      file: drbd_first_configure_flag_check.yml
+ 
+  - name: Set drbd-first-configure playbook flag
+    vars:
+      drbd_configured_all_hosts: "{{ ansible_play_hosts | map('extract', hostvars, 'drbd_first_configure_exists') | list }}"
+    ansible.builtin.set_fact:
+      skip_drbd_config: "{{ true in drbd_configured_all_hosts }}"
+  
+  - block:
+    
+    - name: Start drbd cluster
+      ansible.builtin.import_tasks:
+        file: drbd_cluster.yml
+
+    - block:
+      
+      - name: Clear drbd cache and sync gitlab files to cluster
+        ansible.builtin.import_tasks:
+          file: drbd_sync_gitlab_volume.yml
+      
+      - name: Sync gitlab-secrets.json to ansible controller
+        ansible.builtin.import_tasks:
+          file: gitlab_secrets_sync_to_controller.yml
+      
+      run_once: true
+ 
+    when: skip_drbd_config is false
+
+  - name: Warn that the playbook skipped the drbd config
+    run_once: true
+    ansible.builtin.pause:
+      prompt: "Playbook skipped DRBD cluster configuration as one or more hosts have previously configured DRBD. If you are trying to (re-)integrate a host to a cluster that has already been deployed, please use the re-integration tasks. ENTER to continue, Ctrl-C to stop playbook"
+    when: skip_drbd_config is true
+  
+  tags:
+    - drbd-cluster-start-sync
+    - deploy
+    - gitlab-cluster-host
+    - never
+
+######################
+
+- name: Install pacemaker, SBD and watchdog service
+  ansible.builtin.import_tasks:
+    file: pacemaker_install.yml
+  tags:
+    - pacemaker-install
+    - deploy
+    - gitlab-cluster-host
+    - never
+
+######################
+
+- block:
+
+  - name: Check hosts for pacemaker configuration
+    ansible.builtin.import_tasks:
+      file: pacemaker_config_marker_check.yml
+
+  - name: Set pacemaker-configured flag
+    vars:
+      pcsd_configured_all_hosts: "{{ ansible_play_hosts | map('extract', hostvars, 'pcsd_configured') | list }}"
+    ansible.builtin.set_fact:
+      skip_pacemaker_config: "{{ true in pcsd_configured_all_hosts }}"
+
+  - name: Initialise pacemaker cluster
+    run_once: true
+    vars:
+      regex: "[\\[\\]',]"
+      host_ip_list: ""
+    ansible.builtin.import_tasks:
+      file: pacemaker_initialise.yml
+    when: skip_pacemaker_config is false
+
+  - name: Warn that the pacemaker config was skipped
+    ansible.builtin.pause:
+      prompt: "Pacemaker initial cluster configuration was skipped as one or more hosts have previously configured a pacemaker cluster. If you are trying to (re-)integrate a host into an existing cluster, please use the re-integration tasks. ENTER to continue, Ctrl-C to stop playbook"
+    when: skip_pacemaker_config is true
+    
+  tags:
+    - pacemaker-initialise
+    - deploy
+    - gitlab-cluster-host
+    - never
+
+######################
+
+- block:
+    
+  - name: Configure watchdog and SBD
+    ansible.builtin.import_tasks:
+      file: pacemaker_watchdog_sbd.yml
+  
+  - name: Bring up cluster with SBD based STONITH
+    run_once: true
+    ansible.builtin.import_tasks:
+      file: pacemaker_up_sbd.yml
+  
+  tags:
+    - pacemaker-watchdog-sbd
+    - deploy
+    - gitlab-cluster-host
+    - never
+
+######################
+
+- name: Create and apply pacemaker resources
+  run_once: true
+  vars:
+    host_count: "{{ ansible_play_hosts | length }}"
+  ansible.builtin.import_tasks:
+    file: pacemaker_resources.yml
+  tags:
+    - pacemaker-resources
+    - deploy
+    - gitlab-cluster-host
+    - never
+
+########################################
+## Update config and reconfigure cluster hosts 
+########################################
+
+- name: Sync gitlab.rb from controller to hosts
+  ansible.builtin.import_tasks:
+    file: config_sync.yml
+  tags:
+    - config-sync
+    - config-secrets-update
+    - never
+
+- name: Sync gitlab-secrets.json from controller to hosts
+  ansible.builtin.import_tasks:
+    file: secrets_sync.yml
+  tags:
+    - secrets-sync
+    - config-secrets-update
+    - never
+
+- block:
+
+  - name: Create list of hosts where config or secrets was changed
+    ansible.builtin.set_fact:
+      hosts_to_reconfigure: "{{ ansible_play_hosts | map('extract', hostvars) | selectattr('config_changed','true') | map(attribute='inventory_hostname') | list | union (ansible_play_hosts | map('extract', hostvars) | selectattr('secrets_changed','true') | map(attribute='inventory_hostname') | list) }}"
+
+  - name: Reconfigure gitlab on hosts
+    ansible.builtin.include_tasks:
+      file: config_reconfig_per_host.yml
+      apply:
+        delegate_to: "{{ item }}"
+    when: item == inventory_hostname 
+    loop: "{{ hosts_to_reconfigure }}"
+ 
+  - name: Restart gitlab cluster services
+    run_once: true
+    ansible.builtin.import_tasks:
+      file: config_cluster_restart_gitlab_service.yml
+    when: hosts_to_reconfigure | length > 0 
+  
+  tags:
+    - config-secrets-update
+    - gitlab-cluster-host
+    - never
+
+########################################
+## Upgrade gitlab version 
+########################################
+ 
+- name: Gitlab version check
+  ansible.builtin.import_tasks:
+    file: version_gitlab.yml
+  tags:
+    - version-gitlab
+    - upgrade-gitlab
+    - gitlab-cluster-host
+    - never
+
+- block:
+
+  - name: Identify the primary gitlab host
+    ansible.builtin.import_tasks:
+      file: identify_gitlab_primary.yml
+
+  - name: Check that a primary host was found
+    run_once: true
+    ansible.builtin.fail:
+      msg: "No hosts were found to be primary gitlab cluster host"
+    when: true not in ansible_play_hosts | map('extract', hostvars, 'is_primary') | list 
+
+  - name: Upgrade the primary host
+    ansible.builtin.include_tasks:
+      file: upgrade_gitlab_primary.yml
+    when: is_primary is true 
+
+  - name: Upgrade secondary hosts
+    ansible.builtin.include_tasks:
+      file: upgrade_gitlab_secondary.yml
+      apply:
+        delegate_to: "{{ item }}"
+    when: 
+      - item == inventory_hostname
+      - is_primary is false
+    loop: "{{ ansible_play_hosts }}"
+
+  tags:
+    - upgrade-gitlab
+    - gitlab-cluster-host
+    - never
+
+- block:
+
+  - name: Identify the primary gitlab host
+    ansible.builtin.import_tasks:
+      file: identify_gitlab_primary.yml
+
+  - name: Sync updated gitlab-secrets.json to controller
+    ansible.builtin.import_tasks:
+      file: gitlab_secrets_sync_to_controller.yml
+    when: is_primary is true
+
+  - name: Sync updated gitlab-secrets.json to the secondary hosts
+    ansible.builtin.import_tasks:
+      file: secrets_sync.yml
+    when: is_primary is false
+  
+  tags:
+    - secrets-sync-from-primary
+    - upgrade-gitlab
+    - gitlab-cluster-host
+    - never
+
+########################################
+## Apply patches 
+########################################
+
+- name: Apply gitlab patches
+  ansible.builtin.import_tasks:
+    file: apply_gitlab_patches.yml
+  tags:
+    - apply-gitlab-patches
+    - patch-gitlab-after-upgrade
+    - gitlab-cluster-host
+    - never
+
+- block:
+  
+  - name: Identify the primary gitlab host
+    ansible.builtin.import_tasks:
+      file: identify_gitlab_primary.yml
+
+  - name: Reboot gitlab on primary host if patches were applied
+    ansible.builtin.import_tasks:
+      file: reboot_gitlab.yml
+    when:
+      - is_primary is true
+      - patch_applied is true
+  tags:
+    - patch-gitlab-after-upgrade
+    - gitlab-cluster-host
+    - never
+    
+########################################
+## Update/Upgrade cluster host packages (excluding gitlab) 
+########################################
+
+- name: Shutdown cluster
+  run_once: true
+  ansible.builtin.import_tasks:
+    file: cluster_shutdown.yml
+  tags:
+    - cluster-shutdown
+    - base-os-update
+    - gitlab-cluster-host
+    - never
+
+- name: Run base_os update/upgrade
+  ansible.builtin.import_role:
+    name: base_os
+    tasks_from: upgrade_reboot.yml
+  tags:
+    - base-os-update
+    - gitlab-cluster-host
+    - never
+
+- name: Start cluster
+  run_once: true
+  ansible.builtin.import_tasks:
+    file: cluster_start.yml
+  tags:
+    - cluster-start
+    - base-os-update
+    - gitlab-cluster-host
+    - never
+    
+########################################
+## Backup 
+########################################
+ 
+- block:
+  
+  - name: Identify the primary gitlab host
+    ansible.builtin.import_tasks:
+      file: identify_gitlab_primary.yml
+
+  - name: Create gitlab backup
+    ansible.builtin.import_tasks:
+      file: backup_gitlab.yml
+    when: is_primary is true
+   
+  tags:
+    - backup-gitlab
+    - backup-and-s3-sync
+    - gitlab-cluster-host
+    - never
+ 
+########################################
+## Sync S3 buckets and repositories via controller  
+########################################
+
+
+- name: Ensure/create a sync volume mount
+  run_once: true
+  ansible.builtin.import_tasks:
+    file: backup_sync_volume_mount.yml
+  tags:
+    - backup-sync-volume-mount
+    - backup-sync-s3-to-local
+    - backup-sync-repos-to-local
+    - backup-sync-local-to-secondary-s3
+    - backup-and-s3-sync
+    - gitlab-cluster-host
+    - never
+
+- block:
+
+  - name: Create formatted list of buckets
+    run_once: true
+    ansible.builtin.import_tasks:
+      file: backup_list_buckets.yml
+
+  - name: Sync buckets from primary S3 to controller sync volume
+    run_once: true
+    ansible.builtin.include_tasks:
+      file: backup_s3cmd_sync.yml
+      apply:
+        tags:
+          - always
+    vars:
+      endpoint: "{{ s3_endpoint }}"
+      access_key: "{{ s3_access_key }}"
+      secret_key: "{{ s3_secret_key }}"
+      cache_location: "{{ mount_for_backup_sync }}/s3-sync-cache/R2-to-local_cache"
+      source_location: "S3://{{ item }}/"
+      destination_location: "{{ mount_for_backup_sync }}/{{ item }}/"
+    loop: "{{ buckets }}"
+  
+  tags:
+    - backup-sync-s3-to-local
+    - backup-and-s3-sync
+    - gitlab-cluster-host
+    - never
+
+- block:
+  
+  - name: Identify the primary gitlab host
+    ansible.builtin.import_tasks:
+      file: identify_gitlab_primary.yml
+
+  - name: Sync repository data from the primary gitlab cluster host to the controller sync volume
+    ansible.builtin.import_tasks:
+      file: backup_repo_sync_to_controller.yml
+    when: is_primary is true
+  
+  when: 
+      - repository_backup_name is defined
+      - repository_backup_name != None
+      - repository_backup_name | length > 0
+  tags:
+    - backup-sync-repos-to-local
+    - backup-and-s3-sync
+    - gitlab-cluster-host
+    - never
+
+- block:
+  
+  - name: Create formatted list of buckets
+    run_once: true
+    ansible.builtin.import_tasks:
+      file: backup_list_buckets.yml
+
+  - name: Sync buckets from controller sync volume to secondary S3
+    run_once: true
+    ansible.builtin.include_tasks:
+      file: backup_s3cmd_sync.yml
+      apply:
+        tags:
+          - always
+    vars:
+      endpoint: "{{ s3_secondary_endpoint }}"
+      access_key: "{{ s3_secondary_access_key }}"
+      secret_key: "{{ s3_secondary_secret_key }}"
+      cache_location: "{{ mount_for_backup_sync }}/s3-sync-cache/local-to-R1_cache"
+      source_location: "{{ mount_for_backup_sync }}/{{ item }}/"
+      destination_location: "S3://{{ item }}/"
+    loop: "{{ buckets }}"
+
+  - name: Sync repository data from the controller sync volume to secondary S3
+    run_once: true
+    ansible.builtin.include_tasks:
+      file: backup_s3cmd_sync.yml
+      apply:
+        tags:
+          - always
+    vars:
+      endpoint: "{{ s3_secondary_endpoint }}"
+      access_key: "{{ s3_secondary_access_key }}"
+      secret_key: "{{ s3_secondary_secret_key }}"
+      cache_location: "{{ mount_for_backup_sync }}/s3-sync-cache/test-repo-to-r1_cache"
+      source_location: "{{ mount_for_backup_sync }}/{{ repository_backup_name }}/"
+      destination_location: "S3://{{ repository_backup_name }}/"
+    
+    when: 
+      - repository_backup_name is defined
+      - repository_backup_name != None
+      - repository_backup_name | length > 0
+
+  when: 
+    - s3_secondary_endpoint is defined
+    - s3_secondary_endpoint != None
+    - s3_secondary_endpoint | length > 0
+  
+  tags:
+    - backup-sync-local-to-secondary-s3
+    - backup-and-s3-sync
+    - gitlab-cluster-host
+    - never
+

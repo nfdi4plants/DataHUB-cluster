@@ -1,0 +1,17 @@
+---
+- name: Install haproxy and any helper applications
+  ansible.builtin.import_tasks:
+    file: install_haproxy.yml
+  tags:
+    - install-haproxy
+    - deploy
+    - never
+
+- name: Sync config and certs to the proxy
+  ansible.builtin.import_tasks:
+    file: update_config_certs_haproxy.yml
+  tags:
+    - update-config-certs
+    - deploy
+    - never
+

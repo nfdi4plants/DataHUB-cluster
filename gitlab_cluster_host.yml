@@ -1,0 +1,7 @@
+---
+- name: Master playbook for gitlab cluster hosts
+  hosts: gitlab_cluster
+  roles:
+    - base_os
+    - gitlab-cluster-host
+

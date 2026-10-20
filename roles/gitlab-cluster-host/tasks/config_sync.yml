@@ -1,0 +1,19 @@
+---
+- name: Update gitlab.rb on the cluster host
+  become: true
+  vars:
+    config_file: "{{ role_path }}/templates/{{ gitlab_config_template }}"
+  ansible.builtin.template:
+    src: "{{ gitlab_config_template }}"
+    dest: /etc/gitlab/gitlab.rb
+    mode: '640'
+    owner: root
+  when: 
+    - gitlab_config_template is defined
+    - config_file is file
+  register: gitlab_rb
+
+- name: Set a flag if config was updated
+  ansible.builtin.set_fact:
+    config_changed: "{{ gitlab_rb is changed | default(False) }}"
+

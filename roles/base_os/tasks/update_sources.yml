@@ -1,0 +1,71 @@
+---
+#####
+# Copy the custom sources list to the remote host
+# The role will check if a custom file exists locally and skip if none present
+#####
+
+#################
+# Debian/apt
+#################
+
+- block:
+  - name: Check for a debian.custom.sources file in the role path
+    local_action: ansible.builtin.stat
+    args:
+      path: "{{ role_path }}/files/debian.custom.sources"
+    register: custom_sources
+
+  - block:
+
+    - name: Delete the original apt sources
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/etc/apt/sources.list.d/debian.list"
+        - "/etc/apt/sources.list.d/debian.sources"
+
+    - name: Copy list of local apt sources to sources.list.d/
+      ansible.builtin.copy:
+        src: custom.sources
+        dest: /etc/apt/sources.list.d/
+        mode: "644"
+
+    become: true
+    when: debian_custom_sources.stat.exists 
+  
+  when: ansible_facts['pkg_mgr'] == "apt" and ansible_facts['distribution'] == "Debian"
+
+#################
+# Ubuntu/apt
+#################
+ 
+- block:
+  - name: Check for a ubuntu.custom.sources file in the role path
+    local_action: ansible.builtin.stat
+    args:
+      path: "{{ role_path }}/files/ubuntu.custom.sources"
+    register: custom_sources
+
+  - block:
+
+    - name: Delete the original apt sources
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/etc/apt/sources.list.d/ubuntu.list"
+        - "/etc/apt/sources.list.d/ubuntu.sources"
+
+    - name: Copy list of local apt sources to sources.list.d/
+      ansible.builtin.copy:
+        src: ubuntu.custom.sources
+        dest: /etc/apt/sources.list.d/
+        mode: "644"
+
+    become: true
+    when: custom_sources.stat.exists 
+  
+  when: ansible_facts['pkg_mgr'] == "apt" and ansible_facts['distribution'] == "Ubuntu"
+
+

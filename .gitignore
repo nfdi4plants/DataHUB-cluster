@@ -1,4 +1,3 @@
-keys/*
-!keys/README
-certs/*
-!certs/README
+keys/
+files/*secrets.json
+admin/

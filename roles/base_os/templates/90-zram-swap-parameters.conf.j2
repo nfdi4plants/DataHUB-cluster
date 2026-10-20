@@ -1,0 +1,5 @@
+vm.swappiness = {{ swappiness is defined | ternary(swappiness, 60) }}
+vm.page-cluster = {{ page_cluster is defined | ternary(page_cluster, 3) }}
+vm.watermark_boost_factor = {{ watermark_boost is defined | ternary(watermark_boost, 15000) }}
+vm.watermark_scale_factor = {{ watermark_scale is defined | ternary(watermark_scale, 10) }}
+

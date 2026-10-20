@@ -1,0 +1,41 @@
+---
+- name: Check for flag that drbd has already occurred
+  ansible.builtin.stat:
+    path: /etc/drbd-first-configure
+  register: drbd_first_configure
+
+- block:
+
+    - name: Distribute the drbd config file
+      ansible.builtin.template:
+        src: drbd-gitlab-service.res.j2
+        dest: /etc/drbd.d/drbd-gitlab-service.res
+
+    - name: Update drbd usage survey reponse
+      ansible.builtin.lineinfile:
+        path: /etc/drbd.d/global_common.conf
+        search_string: "usage-count yes;"
+        line: "usage-count no;"
+        state: present
+
+    - name: Create new drbd service metadata
+      ansible.builtin.shell:
+        cmd: drbdadm create-md drbd-gitlab-service --force
+      
+    - name: Bring up the drbd service
+      ansible.builtin.shell:
+        cmd: drbdadm up drbd-gitlab-service
+      
+    - name: Leave a marker that drbd was configured
+      ansible.builtin.file:
+        path: /etc/drbd-first-configure
+        owner: root
+        mode: '644'
+        state: touch
+
+    - name: Pause to allow host volumes to come up
+      ansible.builtin.pause:
+        seconds: 10
+
+  become: true
+  when: drbd_first_configure.stat.exists is false

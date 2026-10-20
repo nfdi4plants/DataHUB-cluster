@@ -1,0 +1,19 @@
+---
+- block:
+  
+  - name: Create/ensure sync volume mount
+    local_action: ansible.posix.mount
+    args:
+      src: "{{ device_for_backup_sync }}"
+      path: "{{ mount_for_backup_sync }}"
+      fstype: "{{ fstype_for_backup_sync }}"
+      state: mounted
+
+  - name: Create/ensure sync cache directory
+    local_action: ansible.builtin.file
+    args:
+      path: "{{ mount_for_backup_sync }}/s3-sync-cache"
+      state: directory
+  
+  become: true
+

@@ -1,0 +1,19 @@
+---
+############################
+# zram swap
+#
+# Values to optimise swap for zram usage, see https://wiki.archlinux.org/title/Zram
+# Commenting values will result in defaults being applied
+# default 60
+swappiness: 180
+
+# default 3
+page_cluster: 0
+
+# default 15000
+watermark_boost: 0
+
+# default 10
+watermark_scale: 125
+
+############################

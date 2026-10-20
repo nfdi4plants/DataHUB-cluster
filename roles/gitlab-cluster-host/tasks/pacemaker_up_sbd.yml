@@ -1,0 +1,21 @@
+---
+- block:
+
+  - name: Start cluster
+    ansible.builtin.shell:
+      cmd: "pcs cluster start --all --request-timeout 90"
+
+  - name: Re-enable STONITH
+    ansible.builtin.shell:
+      cmd: pcs property set stonith-enabled=true
+
+  - name: Set cluster watchdog timeout
+    ansible.builtin.shell:
+      cmd: pcs property set stonith-watchdog-timeout=60
+
+  - name: Set cluster STONITH timeout
+    ansible.builtin.shell:
+      cmd: pcs property set stonith-timeout=72
+
+  become: true
+

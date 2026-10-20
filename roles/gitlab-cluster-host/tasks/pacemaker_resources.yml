@@ -1,0 +1,73 @@
+---
+- block:
+
+  - name: Ensure cluster is up
+    ansible.builtin.shell:
+      cmd: pcs cluster start --all --request-timeout=90
+    
+  - name: Wait for cluster to be ready
+    ansible.builtin.pause:
+      seconds: 10
+    
+  - name: Create base CIB file
+    ansible.builtin.shell:
+      cmd: pcs cluster cib gitlab-cluster-initial.cfg
+      creates: "/home/{{ ansible_user }}/gitlab-cluster-initial.cfg"
+    register: create_CIB
+
+  - block:
+      
+  ### Agents ###
+        
+    - name: Add DRBD agent
+      ansible.builtin.shell:
+        cmd: pcs -f gitlab-cluster-initial.cfg resource create drbd-service ocf:linbit:drbd drbd_resource=drbd-gitlab-service op monitor interval=29 role=Promoted monitor interval=31 role=Unpromoted
+        
+    - name: Configure drbd-service to be a promotable resource
+      ansible.builtin.shell:
+        cmd: "pcs -f gitlab-cluster-initial.cfg resource promotable drbd-service promoted-node-max=1 clone-max={{ host_count }} clone-node-max={{ host_count|int|abs -1}} notify=true"
+
+    - name: Add filesystem agent (mount drbd0)
+      ansible.builtin.shell:
+        cmd: pcs -f gitlab-cluster-initial.cfg resource create fs-gitlab ocf:heartbeat:Filesystem device=/dev/drbd0 directory=/var/opt/gitlab fstype=xfs op start interval=0 timeout=60 op stop interval=0 timeout=60 op monitor interval=20s timeout=40
+
+    - name: Add systemd resource to bring gitlab-runsvdir up/down
+      ansible.builtin.shell:
+        cmd: pcs -f gitlab-cluster-initial.cfg resource create run-gitlab systemd:gitlab-runsvdir op start interval=0 timeout=120 op stop interval=0 timeout=120 op monitor interval=20 timeout=100
+        
+    - name: Add IP agent to manage shared gitlab IP
+      ansible.builtin.shell:
+        cmd: "pcs -f gitlab-cluster-initial.cfg resource create gitlab-ip ocf:heartbeat:IPaddr2 ip={{ gitlab_shared_ip }} cidr_netmask=32 op start interval=0 timeout=20 op stop interval=0 timeout=20 op monitor interval=20 timeout=40"
+
+    ### Groups ###
+
+    - name: Create group for gitlab application and IP
+      ansible.builtin.shell:
+        cmd: pcs -f gitlab-cluster-initial.cfg resource group add g-gitlab run-gitlab gitlab-ip 
+
+    ### Constraints ###
+
+    - name: Bind filesystem mount to primary drbd host
+      ansible.builtin.shell:
+        cmd: pcs -f gitlab-cluster-initial.cfg constraint colocation add fs-gitlab with Promoted drbd-service-clone
+
+    - name: Bind the gitlab application and shared IP to the primary drbd host
+      ansible.builtin.shell:
+        cmd: pcs -f gitlab-cluster-initial.cfg constraint colocation add g-gitlab with Promoted drbd-service-clone
+
+    - name: Ensure drbd promotion is complete before attempting to mount the drbd0 volume
+      ansible.builtin.shell:
+        cmd: pcs -f gitlab-cluster-initial.cfg constraint order promote drbd-service-clone then start fs-gitlab
+
+    - name: Ensure the drbd0 volume is mounted before starting the gitlab application
+      ansible.builtin.shell:
+        cmd: pcs -f gitlab-cluster-initial.cfg constraint order start fs-gitlab then start g-gitlab
+
+    ### Apply the configuration ###
+
+    - name: Apply the configuration to the cluster
+      ansible.builtin.shell:
+        cmd: pcs cluster cib-push gitlab-cluster-initial.cfg --config
+  
+  become: true
+

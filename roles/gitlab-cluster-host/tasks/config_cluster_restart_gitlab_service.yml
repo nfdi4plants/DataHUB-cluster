@@ -1,0 +1,14 @@
+---
+- block:
+
+  - name: Restart g-gitlab cluster agents
+    community.general.pacemaker_resource:
+      name: g-gitlab
+      state: enabled
+    
+  - name: Remove location constraints
+    ansible.builtin.shell:
+      cmd: "pcs resource clear fs-gitlab"
+  
+  become: true
+

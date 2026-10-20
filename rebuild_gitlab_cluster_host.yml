@@ -1,0 +1,262 @@
+---
+- name: Rebuild and integrate a gitlab host - base_os
+  hosts: gitlab_cluster_hosts_to_rebuild
+  vars:
+    regex: "[\\[\\]',]"
+  roles: 
+    - base_os
+  tasks:
+    
+    - name: Identify a host from the active cluster not being rebuilt
+      ansible.builtin.set_fact:
+        unchanged_host: "{{ groups['gitlab_cluster'] | difference(groups['gitlab_cluster_hosts_to_rebuild']) | first }}"
+      tags:
+        - rebuild-get-cluster-host
+        - rebuild-host
+        - always
+
+#################################    
+# Get existing corosync authkey
+#################################
+    - block:
+      
+      - block:
+
+        - name: Copy corosync authkey from active host
+          delegate_to: "{{ unchanged_host }}"
+          ansible.builtin.fetch:
+            src: /etc/corosync/authkey
+            dest: "{{ inventory_dir }}/corosync-authkey.orig"
+            flat: true
+     
+        - name: Copy corosync config from active host
+          delegate_to: "{{ unchanged_host }}"
+          ansible.builtin.fetch:
+            src: /etc/corosync/corosync.conf
+            dest: "{{ inventory_dir }}/corosync.conf.orig"
+            flat: true
+        
+        become: true
+
+      - name: Ensure authkey mode
+        local_action: ansible.builtin.file
+        args:
+          path: "{{ inventory_dir }}/corosync-authkey.orig"
+          mode: "660"
+          state: file
+
+      run_once: true
+      tags:
+        - rebuild-get-corosync-key
+        - rebuild-host
+        - never
+
+#################################    
+# Install gitlab, sync config+secrets, reconfigure, apply patches
+#################################
+    - name: Install gitlab, reconfigure and stop gitlab service
+      ansible.builtin.import_role:
+        name: gitlab-cluster-host
+        tasks_from: install_gitlab.yml
+      tags:
+        - rebuild-install-gitlab
+        - rebuild-host
+        - never
+
+    - name: Sync config
+      ansible.builtin.import_role:
+        name: gitlab-cluster-host
+        tasks_from: config_sync.yml
+      tags:
+        - rebuild-sync-config
+        - rebuild-sync-config-secrets
+        - rebuild-host
+        - never
+      
+    - name: Sync secrets
+      ansible.builtin.import_role:
+        name: gitlab-cluster-host
+        tasks_from: secrets_sync.yml
+      tags:
+        - rebuild-sync-secrets
+        - rebuild-sync-config-secrets
+        - rebuild-host
+        - never
+
+    - block:
+
+      - name: Start the gitlab runsvdir service on the current host
+        ansible.builtin.systemd_service:
+          name: gitlab-runsvdir.service
+          state: started
+      
+      - name: Initiate reconfigure
+        ansible.builtin.shell:
+          cmd: gitlab-ctl reconfigure
+
+      - name: Stop the gitlab runsvdir service on the current host
+        ansible.builtin.systemd_service:
+          name: gitlab-runsvdir.service
+          state: stopped
+      
+      become: true
+      tags:
+        - rebuild-reconfigure-gitlab
+        - rebuild-host
+        - never
+
+    - name: Apply patches
+      ansible.builtin.import_role:
+        name: gitlab-cluster-host
+        tasks_from: apply_gitlab_patches.yml
+      tags:
+        - rebuild-apply-patches
+        - rebuild-host
+        - never
+      
+#################################    
+# Install drbd, create share volume, join drbd cluster and start syncing
+#################################
+
+    - name: Install drbd
+      ansible.builtin.import_role:
+        name: gitlab-cluster-host
+        tasks_from: drbd_install.yml
+      tags:
+        - rebuild-install-drbd
+        - rebuild-host
+        - never
+    
+    - name: Create lvm
+      ansible.builtin.import_role:
+        name: gitlab-cluster-host
+        tasks_from: lvm_create_extend.yml
+      tags:
+        - rebuild-create-lvm
+        - rebuild-host
+        - never
+
+    - name: Bring up drbd on the rebuilding host
+      ansible.builtin.import_role:
+        name: gitlab-cluster-host
+        tasks_from: drbd_cluster.yml
+      tags:
+        - rebuild-up-drbd
+        - rebuild-host
+        - never
+
+#################################    
+# Install and configure pacemaker, SBD
+#################################
+
+    - block:
+
+      - name: Install pacemaker and SBD/watchdog
+        ansible.builtin.import_role:
+          name: gitlab-cluster-host
+          tasks_from: pacemaker_install.yml
+        
+      - name: Disable corosync and pacemaker
+        become: true
+        ansible.builtin.systemd_service:
+          name: "{{ item }}"
+          enabled: false
+        loop:
+          - "pacemaker"
+          - "corosync"
+      
+      tags:
+        - rebuild-install-pacemaker
+        - rebuild-host
+        - never
+
+    - name: Configure SBD
+      ansible.builtin.import_role:
+        name: gitlab-cluster-host
+        tasks_from: pacemaker_watchdog_sbd.yml
+      tags:
+        - rebuild-configure-sbd
+        - rebuild-host
+        - never
+
+    - block:
+      
+      - name: Sync corosync config and key
+        become: true
+        ansible.builtin.copy:
+          src: "{{ inventory_dir }}/{{ item.0 }}"
+          dest: "/etc/corosync/{{ item.1 }}"
+          owner: root
+          mode: "{{ item.2 }}"
+        loop:
+          - ['corosync-authkey.orig','authkey', '400']
+          - ['corosync.conf.orig','corosync.conf','644']
+      
+      - name: Remove temp corosync config and key files
+        local_action: ansible.builtin.file
+        args:
+          path: "{{ inventory_dir }}/{{ item }}"
+          state: absent
+        loop:
+          - "corosync-authkey.orig"
+          - "corosync.conf.orig"
+      
+      tags:
+        - rebuild-sync-corosync
+        - rebuild-host
+        - never
+        
+#################################    
+# Reintegrate host(s)
+#################################
+
+    - block:  
+  
+      - name: Authorise to all cluster hosts
+        ansible.builtin.shell:
+          cmd: "pcs host auth {{ groups['gitlab_cluster'] | list | regex_replace(regex, '') }} -u hacluster -p clusterhost"
+    
+      - name: Sync config between all cluster hosts
+        ansible.builtin.shell:
+          cmd: "pcs cluster sync"
+
+      - name: Reload corosync on cluster hosts
+        ansible.builtin.shell:
+          cmd: "pcs cluster reload corosync" 
+
+      run_once: true
+      become: true
+      delegate_to: "{{ unchanged_host }}"
+      tags:
+        - rebuild-reintegrate-1
+        - rebuild-host
+        - never
+
+    - name: Reboot host(s) being rebuilt 
+      become: true
+      ansible.builtin.reboot:
+      tags:
+        - rebuild-reboot
+        - rebuild-reintegrate-2
+        - rebuild-host
+        - never
+
+    - block:  
+  
+      - name: Start the re-integrated hosts
+        ansible.builtin.shell:
+          cmd: "pcs cluster start {{ groups['gitlab_cluster_hosts_to_rebuild'] | list | regex_replace(regex, '') }} --request-timeout=90"
+
+      - name: Prevent the gitlab services being started on the newly re-introduced hosts for 24hrs to allow disk sync
+        ansible.builtin.shell:
+          cmd: "pcs resource ban g-gitlab {{ item }} lifetime=P1D"
+        loop: "{{ groups['gitlab_cluster_hosts_to_rebuild'] }}"
+      
+      run_once: true
+      become: true
+      delegate_to: "{{ unchanged_host }}"
+      tags:
+        - rebuild-reintegrate-2
+        - rebuild-host
+        - never
+

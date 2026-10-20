@@ -1,0 +1,6 @@
+---
+- name: Master playbook for proxy hosts
+  hosts: proxies
+  roles:
+    - base_os
+    - haproxy

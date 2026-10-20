@@ -1,0 +1,48 @@
+---
+- block:
+
+  - name: Put cluster into maintenance mode
+    ansible.builtin.shell:
+      cmd: "pcs property set maintenance-mode=true"
+  
+  - name: Disable fencing
+    ansible.builtin.shell:
+      cmd: "pcs property set stonith-enabled=false"
+
+  - name: Update package cache and upgrade gitlab
+    ansible.builtin.apt:
+      name: "gitlab-ce={{ gitlab_version }}"
+      state: present
+      allow_change_held_packages: true
+    register: update_gitlab
+
+  - name: Ensure package hold is re-applied for gitlab-ce
+    ansible.builtin.dpkg_selections:
+      name: gitlab-ce
+      selection: hold
+  # Note, this is currently required as the allow_change_held_packages in apt module above does not re-apply the hold
+
+  - name: Clean apt cache
+    ansible.builtin.apt:
+      autoclean: true
+      autoremove: true
+      clean: true
+
+  - name: Wait 10 mins for background gitlab operations
+    ansible.builtin.pause:
+      seconds: 600
+
+  - name: Take cluster out of maintenance mode
+    ansible.builtin.shell:
+      cmd: "pcs property set maintenance-mode=false"
+
+  - name: Re-enable fencing
+    ansible.builtin.shell:
+      cmd: "pcs property set stonith-enabled=true"
+
+  - name: Pause to enable cluster operations to stabilise
+    ansible.builtin.pause:
+      seconds: 180
+  
+  become: true
+

@@ -1,0 +1,34 @@
+---
+- block:
+    
+  - name: Create keycloak admins group
+    ansible.builtin.group:
+      name: "{{ keycloak_install_backup_group }}"
+      state: present
+
+  - name: Create a keycloak directory in /srv
+    ansible.builtin.file:
+      path: /srv/keycloak
+      mode: '2770'
+      owner: "{{ ansible_user }}"
+      group: "{{ keycloak_install_backup_group }}"
+      state: directory
+
+  - name: Add admin and postgres user to keycloak admin group
+    ansible.builtin.user:
+      name: "{{ item }}"
+      append: true
+      groups: "{{ keycloak_install_backup_group }}"
+    loop:
+      - "{{ ansible_user }}"
+      - postgres
+    
+  - name: Create keycloak user
+    ansible.builtin.user:
+      name: keycloak
+      system: true
+      shell: /bin/bash
+      home: /opt/keycloak
+      state: present
+  
+  become: true

@@ -1,0 +1,35 @@
+---
+- block:
+
+  - name: Add softdog as a module for watchdog
+    ansible.builtin.lineinfile:
+      path: /etc/default/watchdog
+      search_string: 'watchdog_module="none"'
+      line: 'watchdog_module="softdog"'
+      state: present
+    register: watchdog_mod
+
+  - name: Place SBD config file
+    ansible.builtin.copy:
+      src: sbd.config
+      dest: /etc/default/sbd
+      owner: root
+      mode: "640"
+    register: sbd_conf
+
+  - name: enable watchdog
+    ansible.builtin.systemd_service:
+      name: watchdog
+      enabled: true
+
+  - name: enable SBD
+    ansible.builtin.systemd_service:
+      name: sbd
+      enabled: true
+
+  - name: Reboot hosts
+    ansible.builtin.reboot:
+    when: watchdog_mod is changed or sbd_conf is changed
+
+  become: true
+

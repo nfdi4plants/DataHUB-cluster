@@ -1,0 +1,63 @@
+---
+# Default user for all hosts.
+ansible_user: ubuntu
+# Leave as ubuntu if using ubuntu, otherwise substitute in appropriate default user
+
+# Default ssh private key when contacting hosts
+ansible_ssh_private_key_file:
+# Key should be placed in the keys/ directory with mode 600
+# e.g. ansible_ssh_private_key_file: keys/ansible-controller-key
+
+# Dict of playbooks to be run as systemd units
+services_timers:
+##########
+# Gitlab cluster hosts
+##########
+#  ansible-gitlab-daily-backup:
+#    playbook: gitlab_cluster_host.yml
+#    tags: "backup-and-s3-sync"
+#    calendar_entry: "*-*-* 00:05:00"
+
+# ansible-gitlab-version-upgrade:
+#    playbook: gitlab_cluster_host.yml
+#    tags: "upgrade-gitlab,patch-gitlab-after-upgrade"
+#    calendar_entry: "Tue *-*-08..14 02:05:05"
+
+# ansible-cluster-host-upgrade:
+#    playbook: gitlab_cluster_host.yml
+#    tags: "base-os-update"
+#    calendar_entry: "Tue *-*-15..21 02:05:05"
+
+##########
+# Keycloak(s)
+##########
+
+#  ansible-keycloak-backup:
+#    playbook: keycloaks.yml
+#    tags: "backup_keycloak"
+#    hosts: "keycloak"
+#    calendar_entry: "Tue *-*-01..07 01:05:05"
+
+#  ansible-keycloak-upgrade:
+#    playbook: keycloaks.yml
+#    tags: "upgrade_keycloak"
+#    hosts: "keycloak"
+#    calendar_entry: "Tue *-*-01..07 02:05:05"
+
+#  ansible-keycloak-host-upgrade:
+#    playbook: keycloaks.yml
+#    tags: "update_os"
+#    hosts: "keycloak"
+#    calendar_entry: "Tue *-*-22..28 02:05:55"
+
+##########
+# Prox(y/ies)
+##########
+
+#  ansible-haproxy-host-upgrade:
+#    playbook: proxies.yml
+#    tags: "update_os"
+#    hosts: "external-proxy"
+#    calendar_entry: "Tue *-*-22..28 02:05:05"
+
+ 

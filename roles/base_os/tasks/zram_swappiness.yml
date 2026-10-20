@@ -1,0 +1,72 @@
+---
+
+- block:
+
+  - name: Install zram-generator (apt)
+    ansible.builtin.apt:
+      name: systemd-zram-generator
+      state: present
+    when: ansible_facts['pkg_mgr'] == 'apt'
+
+  - name: Install zram-generator (dnf)
+    ansible.builtin.dnf:
+      name: zram-generator
+      state: latest
+      update_cache: true
+      use_backend: "dnf"
+    when: (ansible_facts['pkg_mgr'] is match("dnf*")) or (ansible_facts['pkg_mgr'] is match("yum*"))
+
+  - block:
+
+    - name: Install zram-generator (zypper)
+      ansible.builtin.zypper:
+        name: zram-generator
+        state: latest
+        update_cache: true
+      register: zypper_install
+
+    - name: Reboot to apply install (may be immutable OS)
+      ansible.builtin.reboot:
+      when: zypper_install is changed
+    
+    when: ansible_facts['pkg_mgr'] == 'zypper'
+    
+  - name: Place the zram configuration file
+    ansible.builtin.copy:
+      src: zram-generator.conf
+      dest: /etc/systemd/zram-generator.conf
+      owner: root
+      group: root
+      mode: '640'
+    register: zram_config
+
+  - name: Start the zram systemd service
+    ansible.builtin.systemd_service:
+      name: /dev/zram0
+      daemon-reload: true
+      state: started
+    register: zram_service
+
+  - name: Reboot if zram device changed
+    ansible.builtin.reboot:
+    when: 
+      - zram_config is changed
+      - zram_service is not changed
+
+  - name: Optimise swappiness to reflect mem-based swap
+    ansible.builtin.template:
+      src: 90-zram-swap-parameters.conf.j2
+      dest: /etc/sysctl.d/90-zram-swap-parameters.conf
+      owner: root
+      group: root
+      mode: '644'
+    register: swap_parameters
+
+  - name: Reload sysctl config files
+    ansible.builtin.shell:
+      cmd: sysctl -p /etc/sysctl.d/90-zram-swap-parameters.conf
+    when: swap_parameters is changed
+
+  become: true
+
+

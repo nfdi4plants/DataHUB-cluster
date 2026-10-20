@@ -1,0 +1,65 @@
+---
+##################################
+# Deploy
+##################################
+
+- name: Prepare host environment with keycloak user and directories
+  ansible.builtin.import_tasks:
+    file: prepare_keycloak_user_dirs.yml
+  tags:
+    - prepare_keycloak_user_dirs
+    - deploy
+    - keycloak
+    - never
+
+- name: Install prerequisites and download keycloak app
+  ansible.builtin.import_tasks:
+    file: install_keycloak.yml
+  tags:
+    - install_keycloak
+    - deploy
+    - keycloak
+    - never
+
+- name: Prepare keycloak postgres
+  ansible.builtin.import_tasks:
+    file: postgres_keycloak.yml
+  tags:
+    - postgres_keycloak
+    - deploy
+    - keycloak
+    - never
+
+- name: Configure, pre-build and start keycloak (reboots host)
+  ansible.builtin.import_tasks:
+    file: configure_start_keycloak.yml
+  tags:
+    - configure_start_keycloak
+    - deploy
+    - keycloak
+    - never
+
+##################################
+# Backup
+##################################
+
+- name: Create local keycloak backup
+  ansible.builtin.import_tasks:
+    file: backup_keycloak.yml
+  tags:
+    - backup_keycloak
+    - keycloak
+    - never
+
+##################################
+# Upgrade
+##################################
+
+- name: Upgrade keycloak version
+  ansible.builtin.import_tasks:
+    file: upgrade_keycloak.yml
+  tags:
+    - upgrade_keycloak
+    - keycloak
+    - never
+

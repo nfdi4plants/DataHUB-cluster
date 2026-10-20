@@ -1,0 +1,45 @@
+---
+- name: Set patch flag to false
+  ansible.builtin.set_fact:
+    patch_applied: false
+
+- block:
+  
+  - name: Patch lfs_token lifetime
+    ansible.builtin.lineinfile:
+      path: /opt/gitlab/embedded/service/gitlab-rails/lib/gitlab/lfs_token.rb
+      search_string: "DEFAULT_EXPIRE_TIME = 7200"
+      line: "DEFAULT_EXPIRE_TIME = 86400 # 24hrs"
+      owner: root
+      mode: '644'
+      state: present
+    register: lfs_token_patch
+    
+  - name: Patch to prevent use of workhorse s3 client
+    ansible.builtin.lineinfile:
+      path: /opt/gitlab/embedded/service/gitlab-rails/lib/object_storage/direct_upload.rb
+      insertafter: "def use_workhorse_s3_client?" 
+      line: "      return false"
+      owner: root
+      mode: '644'
+      state: present
+    register: s3_workhorse_patch
+
+  - name: Patch to increase S3 transfer chunk size
+    ansible.builtin.lineinfile:
+      path: /opt/gitlab/embedded/service/gitlab-rails/config/initializers/carrierwave_fog_acl_patch.rb
+      search_string: "file.multipart_chunk_size = 10.megabytes"
+      line: "      file.multipart_chunk_size = 1.gigabytes"
+      owner: root
+      mode: '644'
+      state: present
+    register: s3_chunk_patch
+
+  become: true
+
+
+- name: Set patch flag to true if any patches were applied
+  ansible.builtin.set_fact:
+    patch_applied: true
+  when: lfs_token_patch is changed or s3_workhorse_patch is changed or s3_chunk_patch is changed
+

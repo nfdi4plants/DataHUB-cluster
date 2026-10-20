@@ -1,0 +1,6 @@
+---
+- name: Start gitlab application backup
+  become: true
+  ansible.builtin.shell:
+    cmd: "gitlab-backup create SKIP={{ backup_skip }} STRATEGY=copy"
+

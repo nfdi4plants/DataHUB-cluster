@@ -1,0 +1,74 @@
+---
+- name: Download gitlab repository initialisation script
+  ansible.builtin.get_url:
+    url: "https://packages.gitlab.com/install/repositories/gitlab/gitlab-ce/script.deb.sh"
+    dest: "/home/{{ ansible_user }}/script.deb.sh"
+  register: gitlab_repo_download
+
+- name: Run gitlab repository initialisation
+  become: true
+  ansible.builtin.command:
+    cmd: "bash /home/{{ ansible_user }}/script.deb.sh"
+  when: gitlab_repo_download is changed
+
+- name: Query the repo for gitlab-ce
+  ansible.builtin.shell:
+    cmd: apt-cache show gitlab-ce --no-all-versions | grep Version
+  register: candidate_gitlab
+  when: gitlab_version == None or gitlab_version|length == 0
+
+- name: Set gitlab_version var to latest release
+  ansible.builtin.set_fact:
+    gitlab_version: "{{ (candidate_gitlab.stdout | split )[1] }}"
+  when: candidate_gitlab is not skipped
+
+- block:
+
+  - name: Install gitlab
+    ansible.builtin.apt:
+      name: "gitlab-ce={{ gitlab_version }}"
+      state: present
+      update_cache: true
+
+  - name: Set hold on gitlab package version
+    ansible.builtin.dpkg_selections:
+      name: gitlab-ce
+      selection: hold
+
+  - name: Stat for the /var/opt/gitlab directory 
+    # This directory is absent until the first reconfigure
+    ansible.builtin.stat:
+      path: /var/opt/gitlab
+    register: var_opt_gitlab
+
+  - name: Run first gitlab reconfigure
+    no_log: true
+    ansible.builtin.shell:
+      cmd: "gitlab-ctl reconfigure"
+    when: var_opt_gitlab.stat.exists == False
+    retries: 1
+    environment: 
+      GITLAB_ROOT_PASSWORD: "{{ gitlab_initial_root_pw }}"
+    
+  - name: Make a copy of the original gitlab-secrets.json
+    ansible.builtin.copy:
+      remote_src: true
+      src: /etc/gitlab/gitlab-secrets.json
+      dest: /etc/gitlab/gitlab-secrets.json.orig
+      mode: "600"
+      owner: root
+
+  - name: Place a flag to prevent backups during upgrade
+    ansible.builtin.file:
+      path: /etc/gitlab/skip-auto-backup
+      owner: root
+      mode: "644"
+      state: touch
+    
+  - name: Disable gitlab service
+    ansible.builtin.systemd_service:
+      name: gitlab-runsvdir.service
+      enabled: false
+
+  become: true
+
